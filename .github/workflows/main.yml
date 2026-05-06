@@ -1,31 +1,31 @@
-name: Deploy ResiParse to Vercel
+name: Deploy to Vercel
 
 on:
   push:
     branches:
-      - main  # Atau ganti ke 'master' kalau itu branch utama lu
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true # Bungkam warning Node 20
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout Code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Install Dependencies
-        run: npm install # Vite butuh install dependencies dulu
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
 
-      - name: Build Project
-        run: npm run build # Menjalankan 'tsc -b && vite build'
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
 
       - name: Deploy to Vercel
-        uses: amondnet/vercel-action@v25
-        with:
-          vercel-token: ${{ secrets.VERCEL_TOKEN }}
-          vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
-          vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
-          vercel-args: '--prod' # Deploy hasil build ke production
-          working-directory: ./ # Lokasi root project lu
+        run: npx vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
