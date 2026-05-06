@@ -1,0 +1,711 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Resi PDF Parser</title>
+  <link rel="icon" href="/favicon.svg" />
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: { sans: ['Inter', 'ui-sans-serif', 'system-ui'] },
+          boxShadow: { soft: '0 12px 40px rgba(0,0,0,.08)' }
+        }
+      }
+    }
+  </script>
+  <style>
+    :root{--bg:#0b1220;--text:rgba(255,255,255,.92)}
+    html,body{height:100%}
+    body{background:
+      radial-gradient(1200px 600px at 15% 20%, rgba(124,58,237,.35), transparent 55%),
+      radial-gradient(1000px 520px at 85% 25%, rgba(34,197,94,.22), transparent 60%),
+      radial-gradient(800px 500px at 70% 85%, rgba(59,130,246,.18), transparent 60%),
+      var(--bg);
+      color:var(--text)
+    }
+    .glass{background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 60px rgba(0,0,0,.35);backdrop-filter:blur(10px)}
+    .btn{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);transition:transform .12s ease, background .12s ease, border-color .12s ease}
+    .btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.20)}
+    .btn-primary{background:linear-gradient(135deg, rgba(124,58,237,.95), rgba(99,102,241,.90));border-color:rgba(124,58,237,.55)}
+    .btn-primary:hover{background:linear-gradient(135deg, rgba(124,58,237,1), rgba(99,102,241,1))}
+    .btn-green{background:linear-gradient(135deg, rgba(34,197,94,.95), rgba(16,185,129,.90));border-color:rgba(34,197,94,.55)}
+    .chip{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
+    .drop{outline:2px dashed rgba(255,255,255,.18);outline-offset:-10px;transition:outline-color .15s ease, background .15s ease, transform .15s ease}
+    .drop.dragover{outline-color:rgba(124,58,237,.75);background:rgba(124,58,237,.12);transform:translateY(-1px)}
+    .table-wrap{overflow:auto}
+    table{min-width:980px}
+    thead th{position:sticky;top:0;background:rgba(10,15,30,.95);backdrop-filter:blur(8px);z-index:2}
+    .toast{position:fixed;right:16px;bottom:16px;z-index:50;display:flex;flex-direction:column;gap:10px}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+  </style>
+  <script data-arena-recording="true">(function(){
+"use strict";
+var SK="__arena_rec",RRWEB_CDN="https://cdn.jsdelivr.net/npm/rrweb@2.0.0-alpha.4/dist/rrweb.min.js";
+var MAX_RECORDING_MS=600000,MAX_RRWEB_EVENTS=30000,MAX_INTERACTIONS=5000,MAX_CURSOR_POINTS=10000,recStopped=false;
+var stored=null;try{var raw=sessionStorage.getItem(SK);if(raw)stored=JSON.parse(raw);}catch(ex){}
+var meta=stored?stored.m||null:null,rrwebEvents=stored?stored.r||[]:[],rrwebStarted=false,startTime=stored?stored.st||Date.now():Date.now();
+var interactions=stored?stored.i||[]:[],cursorPath=stored?stored.c||[]:[],lastCursorSample=0,lastScrollSample=0;
+var pageHeight=document.documentElement.scrollHeight;
+var viewport={width:window.innerWidth,height:window.innerHeight};
+function isCapped(){if(recStopped)return true;if(Date.now()-startTime>=MAX_RECORDING_MS){recStopped=true;return true;}return false;}
+function persist(){try{var d=JSON.stringify({r:rrwebEvents,i:interactions,c:cursorPath,m:meta,st:startTime});sessionStorage.setItem(SK,d);}catch(ex){rrwebEvents=rrwebEvents.slice(Math.floor(rrwebEvents.length/2));try{sessionStorage.setItem(SK,JSON.stringify({r:rrwebEvents,i:interactions,c:cursorPath,m:meta,st:startTime}));}catch(ex2){}}}
+setInterval(persist,5000);
+window.addEventListener("resize",function(){viewport={width:window.innerWidth,height:window.innerHeight};pageHeight=document.documentElement.scrollHeight;});
+document.addEventListener("click",function(e){if(isCapped()||interactions.length>=MAX_INTERACTIONS)return;var el=e.target;var tag=el.tagName?el.tagName.toLowerCase():"";var text=(el.textContent||"").trim().substring(0,80);var classes=el.className&&typeof el.className==="string"?el.className.substring(0,120):"";interactions.push({type:"click",t:Date.now()-startTime,x:Math.round(e.clientX),y:Math.round(e.clientY),element:{tag:tag,text:text,classes:classes}});},true);
+window.addEventListener("scroll",function(){if(isCapped()||interactions.length>=MAX_INTERACTIONS)return;var now=Date.now();if(now-lastScrollSample<200)return;lastScrollSample=now;var scrollY=Math.round(window.scrollY||window.pageYOffset||0);var depthPct=pageHeight>viewport.height?Math.min(100,Math.round(((scrollY+viewport.height)/pageHeight)*100)):100;interactions.push({type:"scroll",t:now-startTime,y:scrollY,depth_pct:depthPct});},{passive:true});
+document.addEventListener("mousemove",function(e){if(isCapped()||cursorPath.length>=MAX_CURSOR_POINTS)return;var now=Date.now();if(now-lastCursorSample<250)return;lastCursorSample=now;cursorPath.push([Math.round(e.clientX),Math.round(e.clientY),now-startTime]);},{passive:true});
+document.addEventListener("keydown",function(e){if(isCapped()||interactions.length>=MAX_INTERACTIONS)return;if(e.target&&(e.target.tagName==="INPUT"||e.target.tagName==="TEXTAREA"))return;interactions.push({type:"keydown",t:Date.now()-startTime,key:e.key});},true);
+function buildAnalytics(){if(!meta)return null;var ph=document.documentElement.scrollHeight;var maxScroll=0,clickElements={},firstClick=null,firstScroll=null,totalDistance=0;for(var i=0;i<interactions.length;i++){var ev=interactions[i];if(ev.type==="scroll"){if(ev.depth_pct>maxScroll)maxScroll=ev.depth_pct;if(!firstScroll)firstScroll=ev.t;}if(ev.type==="click"){if(!firstClick)firstClick=ev.t;var key=ev.element.tag+":"+ev.element.text.substring(0,30);clickElements[key]=true;}}for(var j=1;j<cursorPath.length;j++){var dx=cursorPath[j][0]-cursorPath[j-1][0];var dy=cursorPath[j][1]-cursorPath[j-1][1];totalDistance+=Math.sqrt(dx*dx+dy*dy);}var duration=Date.now()-startTime;var clickHeatmap=[];for(var k=0;k<interactions.length;k++){if(interactions[k].type==="click")clickHeatmap.push([interactions[k].x,interactions[k].y]);}return{generation_id:meta.generationId,tournament_id:meta.tournamentId,started_at:new Date(startTime).toISOString(),ended_at:new Date().toISOString(),duration_ms:duration,viewport:viewport,page_height:ph,interactions:interactions,cursor_path:cursorPath,click_heatmap:clickHeatmap,summary:{total_clicks:clickHeatmap.length,total_scrolls:interactions.filter(function(e){return e.type==="scroll";}).length,max_scroll_depth_pct:maxScroll,unique_elements_clicked:Object.keys(clickElements).length,time_to_first_click_ms:firstClick,time_to_first_scroll_ms:firstScroll,cursor_distance_px:Math.round(totalDistance),active_time_ms:duration}};}
+function loadRrweb(){if(rrwebStarted)return;rrwebStarted=true;var s=document.createElement("script");s.src=RRWEB_CDN;s.onload=function(){var rec=(window.rrweb&&window.rrweb.record)||window.rrwebRecord;if(!rec)return;rec({emit:function(event){if(rrwebEvents.length>=MAX_RRWEB_EVENTS||isCapped())return;rrwebEvents.push(event);}});};s.onerror=function(){};document.head.appendChild(s);}
+window.addEventListener("message",function(e){if(!e.data||typeof e.data.type!=="string")return;if(e.data.type==="arena:init"){if(!meta)startTime=Date.now();meta={generationId:e.data.generationId||e.data.modelId,tournamentId:e.data.tournamentId};persist();loadRrweb();if(e.source)e.source.postMessage({type:"arena:init-ack",generationId:meta.generationId},"*");}if(e.data.type==="arena:flush"){var resp={type:"arena:recording-data",generationId:meta?meta.generationId:null,rrwebEvents:rrwebEvents,analytics:buildAnalytics()};try{sessionStorage.removeItem(SK);}catch(ex){}if(e.source)e.source.postMessage(resp,"*");}});
+loadRrweb();
+})();</script>
+  <script data-arena-views="true">(function(){var isTop=false;try{isTop=window.self===window.top;}catch(e){}if(!isTop)return;window.__ARENA_META={generationId:"gpt-5.2",tournamentId:"4f569c06-5623-4cc8-a4e3-474477a379f2"};var payload={tournamentId:"4f569c06-5623-4cc8-a4e3-474477a379f2",modelId:"gpt-5.2"};try{var r=document.referrer;if(r){var u=new URL(r);payload.referrerDomain=u.hostname;}}catch(e){}try{var vid=null;try{vid=localStorage.getItem('arena_vid');}catch(e){}if(!vid){vid=typeof crypto!=="undefined"&&crypto.randomUUID?crypto.randomUUID():(Date.now().toString(36)+Math.random().toString(36).slice(2)).slice(0,32);try{localStorage.setItem('arena_vid',vid);}catch(e){}}if(vid)payload.viewerId=vid;}catch(e){}try{fetch("https://www.designarena.ai/api/agon/page-views",{"method":"POST","headers":{"Content-Type":"application/json"},"body":JSON.stringify(payload),"keepalive":true});}catch(e){}})();</script>
+</head>
+<body class="font-sans">
+  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+    <header class="flex flex-col gap-4 sm:gap-5">
+      <div class="flex items-start justify-between gap-4">
+        <div class="flex items-center gap-3">
+          <div class="w-11 h-11 rounded-2xl glass flex items-center justify-center">
+            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+              <path d="M7 2h7l5 5v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
+              <path d="M14 2v6h6" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
+              <path d="M8 13h8M8 17h8" stroke="rgba(124,58,237,.95)" stroke-width="1.8" stroke-linecap="round"/>
+            </svg>
+          </div>
+          <div>
+            <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Resi PDF Parser</h1>
+            <p class="text-sm text-white/70">Upload PDF resi (multi-ekspedisi). Output: No | Tanggal | No Waybill | Nama Penerima | Kecamatan &amp; Kota | Biaya | COD | Keterangan</p>
+          </div>
+        </div>
+
+        <div class="hidden sm:flex items-center gap-2">
+          <button id="btnDemo" class="btn px-3 py-2 rounded-xl text-sm">Load contoh</button>
+          <button id="btnClear" class="btn px-3 py-2 rounded-xl text-sm">Clear</button>
+          <button id="btnExport" class="btn btn-green px-3 py-2 rounded-xl text-sm font-medium">Export CSV</button>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+        <section class="lg:col-span-7 glass rounded-3xl p-5 sm:p-6">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-base font-semibold">Upload PDF</h2>
+              <p class="text-sm text-white/65 mt-1">Drag &amp; drop file PDF atau klik untuk pilih. Parsing berjalan di browser.</p>
+            </div>
+            <div class="hidden sm:flex items-center gap-2 text-xs text-white/55">
+              <span class="chip px-2 py-1 rounded-lg">Jika PDF hasil scan</span>
+              <span class="chip px-2 py-1 rounded-lg">pakai OCR lalu paste teks</span>
+            </div>
+          </div>
+
+          <div id="drop" class="drop mt-4 rounded-3xl p-5 sm:p-6">
+            <label class="block cursor-pointer">
+              <input id="file" type="file" accept="application/pdf" multiple class="hidden" />
+              <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+                <div class="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
+                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                    <path d="M12 16V8" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round"/>
+                    <path d="M9 11l3-3 3 3" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                    <path d="M7 16a4 4 0 0 1 0-8 5 5 0 0 1 9.7-1.7A4 4 0 0 1 18 16" stroke="rgba(124,58,237,.95)" stroke-width="1.6" stroke-linecap="round"/>
+                  </svg>
+                </div>
+                <div class="flex-1">
+                  <div class="text-sm"><span class="font-medium">Klik untuk pilih</span> atau <span class="font-medium">drag &amp; drop</span> PDF.</div>
+                  <div class="text-xs text-white/55 mt-1">Kalau kamu pilih file tapi tidak ada respon, cek Console: kemungkinan CDN PDF.js keblokir. Versi ini sudah punya fallback CDN.</div>
+                </div>
+                <div class="flex flex-wrap gap-2">
+                  <button id="btnPick" class="btn btn-primary px-4 py-2 rounded-xl text-sm font-semibold">Pilih PDF</button>
+                  <button id="btnParse" class="btn px-4 py-2 rounded-xl text-sm">Parse</button>
+                </div>
+              </div>
+            </label>
+
+            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <div class="text-xs text-white/60">Status</div>
+                <div id="status" class="mt-1 text-sm">Menunggu file</div>
+                <div id="progress" class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden hidden">
+                  <div id="progressBar" class="h-full w-0 bg-gradient-to-r from-violet-500 to-indigo-500"></div>
+                </div>
+              </div>
+              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+                <div class="text-xs text-white/60">Pengaturan</div>
+                <div class="mt-2 flex flex-wrap gap-2">
+                  <label class="inline-flex items-center gap-2 chip px-3 py-2 rounded-xl text-sm">
+                    <input id="optTrimKec" type="checkbox" checked class="accent-violet-500">
+                    Ambil <span class="font-medium">Kecamatan &amp; Kota</span>
+                  </label>
+                  <label class="inline-flex items-center gap-2 chip px-3 py-2 rounded-xl text-sm">
+                    <input id="optMerge" type="checkbox" checked class="accent-violet-500">
+                    Merge hasil (append)
+                  </label>
+                </div>
+                <div class="text-xs text-white/55 mt-2">Kecamatan: gabung 2 kata dari <span class="mono">KEC</span> + <span class="mono">KAB/KOTA</span>.</div>
+              </div>
+            </div>
+
+            <div class="mt-4">
+              <div class="flex items-center justify-between gap-3">
+                <div>
+                  <div class="text-sm font-semibold">Teks (opsional)</div>
+                  <div class="text-xs text-white/55">Paste text hasil OCR/copy-text lalu klik Parse dari teks.</div>
+                </div>
+                <button id="btnParseText" class="btn px-3 py-2 rounded-xl text-sm">Parse dari teks</button>
+              </div>
+              <textarea id="rawText" class="mt-3 w-full min-h-[120px] rounded-2xl bg-white/5 border border-white/10 p-4 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" placeholder="Paste hasil OCR / copy text dari PDF di sini"></textarea>
+            </div>
+          </div>
+        </section>
+
+        <aside class="lg:col-span-5 glass rounded-3xl p-5 sm:p-6">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h2 class="text-base font-semibold">Preview (contoh resi)</h2>
+              <p class="text-sm text-white/65 mt-1">Parser disetel supaya cocok dengan format mirip contoh.</p>
+            </div>
+            <a href="#hasil" class="btn px-3 py-2 rounded-xl text-sm">Lihat hasil</a>
+          </div>
+          <div class="mt-4 rounded-3xl overflow-hidden border border-white/10 bg-white/5">
+            <img src="/uploads/upload_1.jpg" alt="Contoh resi" class="w-full h-auto block" />
+          </div>
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="text-xs text-white/60">Dideteksi</div>
+              <div id="detectedCount" class="mt-1 text-lg font-semibold">0</div>
+            </div>
+            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="text-xs text-white/60">File siap</div>
+              <div id="fileCount" class="mt-1 text-lg font-semibold">0</div>
+            </div>
+          </div>
+
+          <div class="mt-4 rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="flex items-center justify-between">
+              <div class="text-sm font-semibold">Troubleshooting</div>
+              <button id="btnSelfTest" class="btn px-3 py-2 rounded-xl text-sm">Self-test PDF.js</button>
+            </div>
+            <ul class="mt-3 text-sm text-white/70 space-y-2 list-disc pl-5">
+              <li>Kalau tombol Parse tidak bereaksi: biasanya <span class="mono">pdfjsLib</span> belum kebaca (CDN blocked).</li>
+              <li>Klik <span class="chip px-2 py-0.5 rounded-lg">Self-test</span> buat cek &amp; auto-load fallback CDN.</li>
+              <li>Kalau PDF scan (gambar), text extraction bakal kosong → pakai OCR lalu paste di kotak teks.</li>
+            </ul>
+            <div id="libStatus" class="mt-3 text-xs text-white/55 mono"></div>
+          </div>
+
+          <div class="sm:hidden mt-4 flex gap-2">
+            <button id="btnDemo_m" class="btn px-3 py-2 rounded-xl text-sm flex-1">Load contoh</button>
+            <button id="btnExport_m" class="btn btn-green px-3 py-2 rounded-xl text-sm font-medium flex-1">Export CSV</button>
+            <button id="btnClear_m" class="btn px-3 py-2 rounded-xl text-sm">Clear</button>
+          </div>
+        </aside>
+      </div>
+    </header>
+
+    <main id="hasil" class="mt-6 sm:mt-8">
+      <section class="glass rounded-3xl p-5 sm:p-6">
+        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+          <div>
+            <h2 class="text-base font-semibold">Hasil</h2>
+            <p class="text-sm text-white/65 mt-1">Klik sel untuk copy. Double click untuk edit.</p>
+          </div>
+          <div class="flex flex-wrap items-center gap-2">
+            <input id="search" type="text" placeholder="Cari waybill / penerima / kecamatan" class="w-[min(520px,80vw)] sm:w-[420px] rounded-2xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" />
+            <button id="btnCopy" class="btn px-3 py-2 rounded-xl text-sm">Copy TSV</button>
+            <button id="btnRemoveSelected" class="btn px-3 py-2 rounded-xl text-sm">Hapus terpilih</button>
+          </div>
+        </div>
+
+        <div class="mt-4 table-wrap rounded-2xl border border-white/10 bg-white/3">
+          <table class="w-full text-sm">
+            <thead>
+              <tr class="text-white/75">
+                <th class="text-left font-semibold px-4 py-3 w-[54px]"><input id="chkAll" type="checkbox" class="accent-violet-500"></th>
+                <th class="text-left font-semibold px-4 py-3 w-[64px]">No</th>
+                <th class="text-left font-semibold px-4 py-3 w-[150px]">Tanggal</th>
+                <th class="text-left font-semibold px-4 py-3 w-[180px]">No Waybill</th>
+                <th class="text-left font-semibold px-4 py-3">Nama Penerima</th>
+                <th class="text-left font-semibold px-4 py-3 w-[240px]">Kecamatan</th>
+                <th class="text-right font-semibold px-4 py-3 w-[140px]">Biaya</th>
+                <th class="text-center font-semibold px-4 py-3 w-[90px]">COD</th>
+                <th class="text-left font-semibold px-4 py-3 w-[220px]">Keterangan</th>
+              </tr>
+            </thead>
+            <tbody id="tbody" class="divide-y divide-white/10"></tbody>
+          </table>
+        </div>
+
+        <div class="mt-4 grid grid-cols-1 lg:grid-cols-3 gap-3">
+          <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="text-xs text-white/60">Privasi</div>
+            <div class="mt-1 text-sm text-white/75">Semua proses di browser. File tidak diupload ke server.</div>
+          </div>
+          <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="text-xs text-white/60">Ekspedisi lain</div>
+            <div class="mt-1 text-sm text-white/75">Tambah rule/regex baru di fungsi <span class="mono">extract*</span>.</div>
+          </div>
+          <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="text-xs text-white/60">Catatan</div>
+            <div class="mt-1 text-sm text-white/75">Kalau PDF itu scan image, PDF.js tidak bisa ambil teks → perlu OCR.</div>
+          </div>
+        </div>
+      </section>
+
+      <footer class="py-10 text-center text-xs text-white/45">Resi PDF Parser — static site siap GitHub → Vercel.</footer>
+    </main>
+  </div>
+
+  <div id="toast" class="toast" aria-live="polite" aria-atomic="true"></div>
+
+  <!-- PDF.js primary CDN (cdnjs). Fallback will be injected if blocked. -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js" crossorigin="anonymous" referrerpolicy="no-referrer"></script>
+
+  <script>
+    const $ = (s,r=document)=>r.querySelector(s);
+    const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+
+    function toast(msg,type='info'){
+      const host=$('#toast');
+      const el=document.createElement('div');
+      const colors={info:'border-white/10 bg-white/10',ok:'border-emerald-400/30 bg-emerald-500/10',warn:'border-amber-400/30 bg-amber-500/10',err:'border-red-400/30 bg-red-500/10'};
+      el.className=`glass ${colors[type]||colors.info} rounded-2xl px-4 py-3 text-sm text-white/85`;
+      el.textContent=msg;
+      host.appendChild(el);
+      setTimeout(()=>{el.style.opacity='0';el.style.transform='translateY(6px)';el.style.transition='all .25s ease';},2600);
+      setTimeout(()=>el.remove(),2950);
+    }
+
+    function normSpaces(s){return String(s||'').replace(/\u00A0/g,' ').replace(/[ \t]+/g,' ').replace(/\s+\n/g,'\n').replace(/\n\s+/g,'\n').trim();}
+    function todayISO(){const d=new Date();const p=x=>String(x).padStart(2,'0');return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`;}
+
+    function formatIDR(n){
+      if(n==null||n==='') return '';
+      const num=typeof n==='number'?n:Number(String(n).replace(/[^0-9]/g,''));
+      if(!Number.isFinite(num)) return String(n);
+      return 'IDR '+num.toLocaleString('id-ID');
+    }
+    function parseIDR(str){
+      if(!str) return null;
+      const m=String(str).match(/\b(?:IDR|Rp)\s*([0-9][0-9\.\,]*)/i);
+      if(!m) return null;
+      const raw=m[1].replace(/\./g,'').replace(/\,/g,'');
+      const val=Number(raw);
+      return Number.isFinite(val)?val:null;
+    }
+
+    function extractDate(text){
+      const t=String(text||'');
+      let m=t.match(/Cetak\s*[:\-]?\s*(\d{2}[\-\/]\d{2}[\-\/]\d{4})/i);
+      if(m) return m[1].replace(/\//g,'-');
+      m=t.match(/\b(\d{2}[\-\/]\d{2}[\-\/]\d{4})\b/);
+      if(m) return m[1].replace(/\//g,'-');
+      return todayISO();
+    }
+    function extractWaybill(text){
+      const t=String(text||'');
+      let m=t.match(/\b(\d{8,14})\b/);
+      if(m) return m[1];
+      m=t.match(/\b([A-Z0-9]{2,4}-[A-Z0-9]{3,8}-[A-Z0-9]{2,6})\b/i);
+      if(m) return m[1].toUpperCase();
+      return '';
+    }
+    function extractReceiver(text){
+      const t=String(text||'');
+      let m=t.match(/Penerima\s*:\s*([^\n\r]+?)(?=\n|$)/i);
+      if(m) return normSpaces(m[1]);
+      return '';
+    }
+    function extractCOD(text){return /\bCOD\b/i.test(String(text||''))?'Ya':'Tidak';}
+    function extractBiaya(text){
+      const t=String(text||'');
+      let windowed=t;
+      const idx=t.search(/(BIAYA\s+PENGIRIMAN|TOTAL\s+BIAYA)/i);
+      if(idx>=0) windowed=t.slice(idx, idx+220);
+      const val=parseIDR(windowed) ?? parseIDR(t);
+      return val!=null?val:'';
+    }
+    function extractKecamatanKota(text){
+      const t=String(text||'');
+      const kec=(t.match(/\bKEC\.?\s*([A-Z0-9\-\s]{3,40})/i)||[])[1]||'';
+      const kab=(t.match(/\bKAB\.?\s*([A-Z0-9\-\s]{3,40})/i)||[])[1]||'';
+      const kota=(t.match(/\bKOTA\s*([A-Z0-9\-\s]{3,40})/i)||[])[1]||'';
+      const clean2=(s)=>normSpaces(s).split(' ').filter(Boolean).slice(0,2).join(' ');
+      const kec2=clean2(kec);
+      let city2='';
+      if(kota) city2='KOTA '+clean2(kota);
+      else if(kab) city2='KAB '+clean2(kab);
+      return [kec2?('KEC '+kec2):'', city2].filter(Boolean).join(' / ');
+    }
+
+    function splitIntoShipments(text){
+      const t=normSpaces(text);
+      if(!t) return [];
+      const parts=t.split(/(?=\bPenerima\s*:)/i).map(s=>s.trim()).filter(Boolean);
+      return parts.length<=1?[t]:parts;
+    }
+
+    function escapeHtml(s){return String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));}
+
+    function toTSV(rows){
+      const headers=['No','Tanggal','No Waybill','Nama Penerima','Kecamatan','Biaya','COD','Keterangan'];
+      const lines=[headers.join('\t')];
+      for(const r of rows){
+        lines.push([r.no,r.tanggal,r.waybill,r.penerima,r.kecamatan,r.biaya_display,r.cod,r.keterangan]
+          .map(v=>String(v??'').replace(/\t/g,' ').replace(/\n/g,' ')).join('\t'));
+      }
+      return lines.join('\n');
+    }
+    function toCSV(rows){
+      const headers=['No','Tanggal','No Waybill','Nama Penerima','Kecamatan','Biaya','COD','Keterangan'];
+      const esc=(v)=>{const s=String(v??'');return /[\n\r,\"]/g.test(s)?('"'+s.replace(/\"/g,'""')+'"'):s;};
+      const lines=[headers.map(esc).join(',')];
+      for(const r of rows){
+        lines.push([r.no,r.tanggal,r.waybill,r.penerima,r.kecamatan,r.biaya_display,r.cod,r.keterangan].map(esc).join(','));
+      }
+      return lines.join('\n');
+    }
+    function download(filename, content, mime){
+      const blob=new Blob([content],{type:mime});
+      const url=URL.createObjectURL(blob);
+      const a=document.createElement('a');
+      a.href=url;a.download=filename;document.body.appendChild(a);a.click();a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),1000);
+    }
+
+    // state
+    let files=[];
+    let rows=[];
+    const statusEl=$('#status');
+    const fileCountEl=$('#fileCount');
+    const detectedCountEl=$('#detectedCount');
+    const tbody=$('#tbody');
+
+    function setStatus(msg){statusEl.textContent=msg;}
+    function setProgress(pct){
+      const wrap=$('#progress');
+      const bar=$('#progressBar');
+      wrap.classList.remove('hidden');
+      bar.style.width=`${Math.max(0,Math.min(100,pct))}%`;
+      if(pct>=100) setTimeout(()=>wrap.classList.add('hidden'),400);
+    }
+    function refreshCounts(){fileCountEl.textContent=String(files.length);detectedCountEl.textContent=String(rows.length);}
+
+    function applySearchFilter(){
+      const q=$('#search').value.trim().toLowerCase();
+      $$('#tbody tr').forEach(tr=>{tr.classList.toggle('hidden', q && !(tr.getAttribute('data-text')||'').includes(q));});
+    }
+
+    function inlineEdit(cell,row,key){
+      const old=cell.innerText.trim();
+      const input=document.createElement('input');
+      input.value=old;
+      input.className='w-full rounded-xl bg-white/10 border border-white/15 px-3 py-2 text-sm text-white/90 focus:outline-none focus:ring-2 focus:ring-violet-500/60';
+      cell.innerHTML='';
+      cell.appendChild(input);
+      input.focus();
+      input.select();
+      const commit=()=>{const v=input.value.trim();row[key]=v;if(key==='biaya_display'){const p=parseIDR(v);if(p!=null) row.biaya=p;}render();};
+      input.addEventListener('keydown',e=>{if(e.key==='Enter')commit();if(e.key==='Escape')render();});
+      input.addEventListener('blur',commit);
+    }
+
+    function render(){
+      tbody.innerHTML='';
+      const frag=document.createDocumentFragment();
+      rows.forEach((r,idx)=>{
+        r.no=idx+1;
+        r.biaya_display=r.biaya?formatIDR(r.biaya):(r.biaya_display||'');
+        const tr=document.createElement('tr');
+        tr.className='hover:bg-white/5 transition-colors';
+        tr.setAttribute('data-text',`${r.tanggal} ${r.waybill} ${r.penerima} ${r.kecamatan} ${r.biaya_display} ${r.cod} ${r.keterangan}`.toLowerCase());
+        tr.innerHTML=`
+          <td class="px-4 py-3 align-top"><input type="checkbox" class="rowChk accent-violet-500" data-id="${r._id}"></td>
+          <td class="px-4 py-3 align-top text-white/80">${r.no}</td>
+          <td class="px-4 py-3 align-top" data-edit="tanggal">${escapeHtml(r.tanggal)}</td>
+          <td class="px-4 py-3 align-top font-semibold text-white/90" data-edit="waybill">${escapeHtml(r.waybill)}</td>
+          <td class="px-4 py-3 align-top" data-edit="penerima">${escapeHtml(r.penerima)}</td>
+          <td class="px-4 py-3 align-top" data-edit="kecamatan">${escapeHtml(r.kecamatan)}</td>
+          <td class="px-4 py-3 align-top text-right tabular-nums" data-edit="biaya_display">${escapeHtml(r.biaya_display)}</td>
+          <td class="px-4 py-3 align-top text-center" data-edit="cod"><span class="${r.cod==='Ya'?'text-emerald-300':'text-white/65'} font-semibold">${escapeHtml(r.cod)}</span></td>
+          <td class="px-4 py-3 align-top" data-edit="keterangan">${escapeHtml(r.keterangan||'')}</td>`;
+
+        tr.addEventListener('click',(e)=>{
+          const cell=e.target.closest('td');
+          if(!cell) return;
+          const key=cell.getAttribute('data-edit');
+          if(!key) return;
+          const val=cell.innerText.trim();
+          navigator.clipboard?.writeText(val);
+          toast('Copied: '+val,'ok');
+        });
+        tr.addEventListener('dblclick',(e)=>{
+          const cell=e.target.closest('td');
+          if(!cell) return;
+          const key=cell.getAttribute('data-edit');
+          if(!key) return;
+          inlineEdit(cell,r,key);
+        });
+
+        frag.appendChild(tr);
+      });
+      tbody.appendChild(frag);
+      refreshCounts();
+      applySearchFilter();
+    }
+
+    // Robust PDF.js loader (handles CDN blocked)
+    const PDFJS_SOURCES=[
+      {
+        name:'cdnjs',
+        lib:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js',
+        worker:'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js'
+      },
+      {
+        name:'jsdelivr',
+        lib:'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.min.js',
+        worker:'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.2.67/build/pdf.worker.min.js'
+      },
+      {
+        name:'unpkg',
+        lib:'https://unpkg.com/pdfjs-dist@4.2.67/build/pdf.min.js',
+        worker:'https://unpkg.com/pdfjs-dist@4.2.67/build/pdf.worker.min.js'
+      }
+    ];
+
+    async function ensurePdfJs(){
+      const libStatus=$('#libStatus');
+      const has=()=> (window.pdfjsLib && window.pdfjsLib.getDocument);
+
+      if(has()){
+        const src=(window.pdfjsLib?.GlobalWorkerOptions?.workerSrc)||'(not set)';
+        libStatus.textContent=`pdfjsLib OK. workerSrc=${src}`;
+        return true;
+      }
+
+      // try to load from fallbacks
+      for(const src of PDFJS_SOURCES){
+        libStatus.textContent=`Loading pdfjsLib from ${src.name}...`;
+        const ok=await loadScript(src.lib);
+        if(ok && has()){
+          window.pdfjsLib.GlobalWorkerOptions.workerSrc=src.worker;
+          libStatus.textContent=`pdfjsLib loaded from ${src.name}. workerSrc=${src.worker}`;
+          toast('PDF.js loaded ('+src.name+').','ok');
+          return true;
+        }
+      }
+      libStatus.textContent='pdfjsLib gagal dimuat. Cek adblock/firewall yang blokir CDN.';
+      toast('PDF.js gagal dimuat. Coba parse dari teks (OCR).','err');
+      return false;
+    }
+
+    function loadScript(url){
+      return new Promise((resolve)=>{
+        const s=document.createElement('script');
+        s.src=url;
+        s.async=true;
+        s.onload=()=>resolve(true);
+        s.onerror=()=>resolve(false);
+        document.head.appendChild(s);
+      });
+    }
+
+    async function extractTextFromPDF(file,onProgress){
+      const buf=await file.arrayBuffer();
+      const pdf=await window.pdfjsLib.getDocument({data:buf}).promise;
+      let out='';
+      for(let i=1;i<=pdf.numPages;i++){
+        const page=await pdf.getPage(i);
+        const content=await page.getTextContent();
+        out+=content.items.map(it=>it.str).join(' ')+'\n';
+        onProgress?.(i,pdf.numPages);
+      }
+      return normSpaces(out);
+    }
+
+    function parseShipmentsFromText(text,sourceName=''){
+      const shipments=splitIntoShipments(text);
+      const baseTanggal=extractDate(text);
+      const parsed=[];
+      for(const s of shipments){
+        const waybill=extractWaybill(s)||extractWaybill(text);
+        const penerima=extractReceiver(s);
+        const cod=extractCOD(s);
+        const biaya=extractBiaya(s);
+        const kecamatan=$('#optTrimKec').checked?extractKecamatanKota(s):'';
+        const score=[waybill,penerima,kecamatan,biaya].filter(Boolean).length;
+        if(score<=1) continue;
+        parsed.push({_id:crypto.randomUUID(),no:0,tanggal:baseTanggal,waybill,penerima,kecamatan,biaya:biaya||'',biaya_display:biaya?formatIDR(biaya):'',cod,keterangan:sourceName?`Sumber: ${sourceName}`:''});
+      }
+      if(parsed.length===0){
+        const waybill=extractWaybill(text);
+        const penerima=extractReceiver(text);
+        const cod=extractCOD(text);
+        const biaya=extractBiaya(text);
+        const kecamatan=$('#optTrimKec').checked?extractKecamatanKota(text):'';
+        const score=[waybill,penerima,kecamatan,biaya].filter(Boolean).length;
+        if(score>=2){
+          parsed.push({_id:crypto.randomUUID(),no:0,tanggal:baseTanggal,waybill,penerima,kecamatan,biaya:biaya||'',biaya_display:biaya?formatIDR(biaya):'',cod,keterangan:sourceName?`Sumber: ${sourceName}`:''});
+        }
+      }
+      return parsed;
+    }
+
+    async function parseAll(){
+      if(files.length===0){toast('Pilih minimal 1 PDF.','warn');return;}
+      const ok=await ensurePdfJs();
+      if(!ok) return;
+
+      setStatus('Parsing...');
+      let newRows=[];
+      let done=0;const total=files.length;
+      setProgress(1);
+
+      for(const f of files){
+        try{
+          setStatus(`Ekstrak teks: ${f.name}`);
+          const text=await extractTextFromPDF(f,(p,n)=>{setProgress(((done+(p/n))/total)*100);});
+          if(!text || text.length<10){
+            toast(`Teks kosong dari ${f.name}. Mungkin PDF scan → gunakan OCR lalu paste.`, 'warn');
+          }
+          const parsed=parseShipmentsFromText(text,f.name);
+          newRows=newRows.concat(parsed);
+        }catch(err){
+          console.error(err);
+          toast('Gagal parse: '+f.name,'err');
+        }
+        done++;setProgress((done/total)*100);
+      }
+
+      if(!$('#optMerge').checked) rows=[];
+      rows=rows.concat(newRows);
+      // dedup by waybill
+      const seen=new Set();
+      rows=rows.filter(r=>{const k=r.waybill||r._id;if(seen.has(k)) return false;seen.add(k);return true;});
+
+      render();
+      setStatus(`Selesai. Ditambahkan ${newRows.length} baris.`);
+      toast(`Selesai parse: ${newRows.length} baris`, newRows.length?'ok':'warn');
+      setProgress(100);
+    }
+
+    // demo
+    const DEMO_TEXT=`EZ NP\n311-SNG09C-10E\n1356640324\nRT007 / 002\nPenerima: MAMA PUTRI/NUNG ******4339\nKAB.SERANG, GUNUNG SARI, KP.PEGADUNGAN RT007/002,DESA CURUG SULANJANA,KEC.GUNUNG SARI SERANG BANTEN\nPengirim: MATAHARI CIBINON ******3450\nBIAYA PENGIRIMAN IDR 12.000\nCOD\nCetak : 02-05-2026`;
+    function loadDemo(){
+      $('#rawText').value=normSpaces(DEMO_TEXT);
+      const parsed=parseShipmentsFromText($('#rawText').value,'demo');
+      if(!$('#optMerge').checked) rows=[];
+      rows=rows.concat(parsed);
+      render();
+      setStatus('Demo loaded.');
+      toast('Demo loaded','ok');
+    }
+    function clearAll(){
+      files=[];rows=[];
+      $('#file').value='';
+      $('#rawText').value='';
+      $('#search').value='';
+      $('#chkAll').checked=false;
+      render();
+      setStatus('Menunggu file...');
+      refreshCounts();
+      toast('Cleared.','ok');
+    }
+
+    // events (fix: stop label click from hijacking button clicks)
+    $('#btnPick').addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();$('#file').click();});
+    $('#btnParse').addEventListener('click',(e)=>{e.preventDefault();e.stopPropagation();parseAll();});
+
+    function wire(id,fn){const el=$(id); if(el) el.addEventListener('click',fn);}
+    wire('#btnDemo',(e)=>{e.preventDefault();loadDemo();});
+    wire('#btnDemo_m',(e)=>{e.preventDefault();loadDemo();});
+    wire('#btnClear',(e)=>{e.preventDefault();clearAll();});
+    wire('#btnClear_m',(e)=>{e.preventDefault();clearAll();});
+
+    function exportCSV(){
+      if(rows.length===0){toast('Tidak ada data untuk diexport.','warn');return;}
+      download(`resi-parser-${Date.now()}.csv`, toCSV(rows), 'text/csv;charset=utf-8');
+      toast('CSV exported.','ok');
+    }
+    wire('#btnExport',(e)=>{e.preventDefault();exportCSV();});
+    wire('#btnExport_m',(e)=>{e.preventDefault();exportCSV();});
+
+    $('#btnParseText').addEventListener('click',(e)=>{
+      e.preventDefault();
+      const t=normSpaces($('#rawText').value);
+      if(!t){toast('Teks kosong.','warn');return;}
+      const parsed=parseShipmentsFromText(t,'teks');
+      if(!$('#optMerge').checked) rows=[];
+      rows=rows.concat(parsed);
+      render();
+      toast(`Parsed ${parsed.length} baris dari teks`, parsed.length?'ok':'warn');
+    });
+
+    $('#btnCopy').addEventListener('click', async (e)=>{
+      e.preventDefault();
+      if(rows.length===0){toast('Tidak ada data.','warn');return;}
+      try{await navigator.clipboard.writeText(toTSV(rows));toast('Copied TSV ke clipboard.','ok');}
+      catch{toast('Gagal copy (permission).','err');}
+    });
+
+    $('#btnRemoveSelected').addEventListener('click',(e)=>{
+      e.preventDefault();
+      const ids=new Set($$('.rowChk:checked').map(c=>c.getAttribute('data-id')));
+      if(ids.size===0){toast('Pilih baris dulu.','warn');return;}
+      rows=rows.filter(r=>!ids.has(r._id));
+      render();
+      toast(`Hapus ${ids.size} baris.`,'ok');
+    });
+
+    $('#chkAll').addEventListener('change',(e)=>{
+      const on=e.target.checked;
+      $$('.rowChk').forEach(c=>c.checked=on);
+    });
+
+    $('#search').addEventListener('input', applySearchFilter);
+
+    $('#file').addEventListener('change',(e)=>{
+      files=Array.from(e.target.files||[]);
+      refreshCounts();
+      setStatus(files.length?`${files.length} file dipilih. Klik Parse.`:'Menunggu file...');
+      if(files.length) toast('File dipilih. Klik Parse.','ok');
+    });
+
+    // drag/drop
+    const drop=$('#drop');
+    ['dragenter','dragover'].forEach(ev=>drop.addEventListener(ev,(e)=>{e.preventDefault();e.stopPropagation();drop.classList.add('dragover');}));
+    ['dragleave','drop'].forEach(ev=>drop.addEventListener(ev,(e)=>{e.preventDefault();e.stopPropagation();drop.classList.remove('dragover');}));
+    drop.addEventListener('drop',(e)=>{
+      const dropped=Array.from(e.dataTransfer?.files||[]).filter(f=>/pdf$/i.test(f.name));
+      if(dropped.length){
+        files=dropped;
+        $('#file').value='';
+        refreshCounts();
+        setStatus(`${files.length} file di-drop. Klik Parse.`);
+        toast('File diterima.','ok');
+      } else toast('Drop hanya support file PDF.','warn');
+    });
+
+    // self test
+    $('#btnSelfTest').addEventListener('click', async (e)=>{
+      e.preventDefault();
+      const ok=await ensurePdfJs();
+      if(ok) toast('PDF.js ready. Coba upload & parse.','ok');
+    });
+
+    // initial
+    refreshCounts();
+    render();
+    // attempt workerSrc set if cdnjs loaded
+    (async ()=>{
+      await ensurePdfJs();
+    })();
+  </script>
+</body>
+</html>
