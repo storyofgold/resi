@@ -21,4 +21,4 @@ jobs:
           vercel-org-id: ${{ secrets.VERCEL_ORG_ID }}
           vercel-project-id: ${{ secrets.VERCEL_PROJECT_ID }}
           vercel-args: '--prod'   # Deploy ke production
-          vercel-project-name: resi-parse
+          vercel-project-name: resi
