@@ -1,12 +1,11 @@
 import { useRef, useState, useCallback, useEffect } from 'react';
 import * as pdfjs from 'pdfjs-dist';
-import type { TextItem } from 'pdfjs-dist';
 
 // Worker via CDN — tidak ikut di-bundle Rollup/Vite
 pdfjs.GlobalWorkerOptions.workerSrc =
   'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
 
-// ── Types ───────────────────────────────────────────────────────────────────
+// ── Types ─────────────────────────────────────────────────────────────────────
 interface ResiRow {
   _id: string;
   tanggal: string;
@@ -18,7 +17,7 @@ interface ResiRow {
   keterangan: string;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────────────
+// ── Helpers ───────────────────────────────────────────────────────────────────
 function normSpaces(s: string) {
   return String(s ?? '').replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ').trim();
 }
@@ -29,7 +28,7 @@ function todayISO() {
   return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
 }
 
-function formatIDR(n: number) {
+function formatIDR(n: number): string {
   if (!n) return '-';
   return 'IDR ' + n.toLocaleString('id-ID');
 }
@@ -85,9 +84,8 @@ function buildRow(text: string, label: string): ResiRow {
 }
 
 // ── PDF Parser ────────────────────────────────────────────────────────────────
-// pdfjs TextContent.items adalah (TextItem | TextMarkedContent)[]
-// TextItem memiliki .str dan .hasEOL; TextMarkedContent tidak punya .str
-// Gunakan type guard 'str' in it untuk narrow ke TextItem saja
+// Gunakan for...of + type narrowing manual untuk hindari TS2345
+// TextItem punya .str; TextMarkedContent tidak — cukup cek 'str' in it
 async function parsePdfFile(file: File): Promise<ResiRow | null> {
   try {
     const buf = await file.arrayBuffer();
@@ -96,16 +94,16 @@ async function parsePdfFile(file: File): Promise<ResiRow | null> {
     for (let i = 1; i <= pdf.numPages; i++) {
       const pg = await pdf.getPage(i);
       const tc = await pg.getTextContent();
-      text += tc.items
-        .map((it) => {
-          // type guard: hanya TextItem yang punya .str
-          if ('str' in it) {
-            const item = it as TextItem;
-            return item.str + (item.hasEOL ? '\n' : ' ');
-          }
-          return '';
-        })
-        .join('') + '\n';
+      let pageText = '';
+      for (const it of tc.items) {
+        if ('str' in it) {
+          // it is TextItem
+          const str: string = (it as { str: string; hasEOL?: boolean }).str;
+          const eol: boolean = (it as { str: string; hasEOL?: boolean }).hasEOL ?? false;
+          pageText += str + (eol ? '\n' : ' ');
+        }
+      }
+      text += pageText + '\n';
     }
     return buildRow(text, file.name);
   } catch (err) {
@@ -114,7 +112,7 @@ async function parsePdfFile(file: File): Promise<ResiRow | null> {
   }
 }
 
-// ── Export helpers ────────────────────────────────────────────────────────────
+// ── Export helpers ─────────────────────────────────────────────────────────────
 function exportCSV(rows: ResiRow[]) {
   const hdr = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
   const body = rows.map((r, i) =>
@@ -139,7 +137,7 @@ function copyTSV(rows: ResiRow[]) {
   navigator.clipboard.writeText([hdr.join('\t'), ...body].join('\n'));
 }
 
-// ── Toast ─────────────────────────────────────────────────────────────────────
+// ── Toast ──────────────────────────────────────────────────────────────────────
 type ToastType = 'info' | 'ok' | 'warn' | 'err';
 interface ToastItem { id: number; msg: string; type: ToastType; }
 
@@ -154,7 +152,7 @@ function useToast() {
   return { toasts, toast };
 }
 
-// ── Main Component ────────────────────────────────────────────────────────────
+// ── Main Component ─────────────────────────────────────────────────────────────
 export default function App() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const dropRef = useRef<HTMLDivElement>(null);
@@ -327,7 +325,6 @@ export default function App() {
                 </div>
               </div>
 
-              {/* Progress */}
               <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div className="rounded-2xl p-4" style={{ background: 'rgba(255,255,255,.05)', border: '1px solid rgba(255,255,255,.10)' }}>
                   <div className="text-xs" style={{ color: 'rgba(255,255,255,.60)' }}>Status</div>
@@ -356,7 +353,6 @@ export default function App() {
               </div>
             </div>
 
-            {/* OCR text input */}
             <div className="mt-4">
               <div className="flex items-center justify-between gap-3">
                 <div>
@@ -470,11 +466,7 @@ export default function App() {
                 <tbody>
                   {filtered.length === 0 && (
                     <tr>
-                      <td
-                        colSpan={8}
-                        className="text-center py-12"
-                        style={{ color: 'rgba(255,255,255,.40)' }}
-                      >
+                      <td colSpan={8} className="text-center py-12" style={{ color: 'rgba(255,255,255,.40)' }}>
                         Belum ada data. Upload dan parse PDF dulu.
                       </td>
                     </tr>
