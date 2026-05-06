@@ -1,5 +1,5 @@
 {
-  "name": "placeholder-model-2",
+  "name": "resi",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,6 +13,7 @@
     "@tailwindcss/vite": "^4.2.1",
     "framer-motion": "^12.35.0",
     "lucide-react": "^0.577.0",
+    "pdfjs-dist": "^4.10.38",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-router-dom": "^7.13.1",
