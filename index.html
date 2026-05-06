@@ -184,7 +184,7 @@
           <div class="flex flex-wrap items-center gap-2">
             <input id="search" type="text" placeholder="Cari data..." class="w-[min(520px,80vw)] sm:w-[420px] rounded-2xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" />
             <button id="btnCopy" class="btn px-3 py-2 rounded-xl text-sm">Copy TSV</button>
-            <button id="btnExport" class="btn btn-green px-3 py-2 rounded-xl text-sm">Export CSV</button>
+            <button id="btnExport2" class="btn btn-green px-3 py-2 rounded-xl text-sm">Export CSV</button>
           </div>
         </div>
 
@@ -214,143 +214,301 @@
 
   <div id="toast" class="toast"></div>
 
-  <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.min.js"></script>
+  <!-- PDF.js dimuat sebagai ES Module (v4.2.67 sudah 404 di cdnjs) -->
+  <script type="module">
+    // ── PDF.js ESM loader dengan fallback ──────────────────────────────────
+    const PDFJS_SOURCES = [
+      {
+        name: 'jsdelivr-v5',
+        lib:    'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.min.mjs',
+        worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
+      },
+      {
+        name: 'jsdelivr-v4',
+        lib:    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs',
+        worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs'
+      }
+    ];
 
-  <script>
-    // JS Logic Tetap Sama, tapi karakter dibersihkan
-    const $ = (s,r=document)=>r.querySelector(s);
-    const $$ = (s,r=document)=>Array.from(r.querySelectorAll(s));
+    let pdfjsLib  = null;
+    let pdfReady  = false;
+    let loadingP  = null;
 
-    function toast(msg,type='info'){
-      const host=$('#toast');
-      const el=document.createElement('div');
-      const colors={info:'border-white/10 bg-white/10',ok:'border-emerald-400/30 bg-emerald-500/10',warn:'border-amber-400/30 bg-amber-500/10',err:'border-red-400/30 bg-red-500/10'};
-      el.className=`glass ${colors[type]||colors.info} rounded-2xl px-4 py-3 text-sm text-white/85`;
-      el.textContent=msg;
+    async function ensurePdfJs() {
+      if (pdfReady && pdfjsLib?.getDocument) return true;
+      if (loadingP) return loadingP;
+
+      loadingP = (async () => {
+        const libStatus = document.querySelector('#libStatus');
+        for (const src of PDFJS_SOURCES) {
+          try {
+            libStatus.textContent = `Memuat PDF.js dari ${src.name}…`;
+            const mod = await import(src.lib);
+            if (!mod?.getDocument) continue;
+            pdfjsLib = mod;
+            pdfjsLib.GlobalWorkerOptions.workerSrc = src.worker;
+            libStatus.textContent = `✓ PDF.js ready (${src.name})`;
+            pdfReady = true;
+            return true;
+          } catch (e) {
+            console.warn('PDF.js load failed from', src.name, e);
+          }
+        }
+        libStatus.textContent = '✗ PDF.js gagal dimuat dari semua CDN. Gunakan paste teks OCR.';
+        toast('PDF.js gagal dimuat. Gunakan fitur paste teks OCR.', 'err');
+        loadingP = null;
+        return false;
+      })();
+
+      return loadingP;
+    }
+
+    // ── Helpers ────────────────────────────────────────────────────────────
+    const $  = (s, r = document) => r.querySelector(s);
+    const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+
+    function toast(msg, type = 'info') {
+      const host = $('#toast');
+      const el   = document.createElement('div');
+      const colors = {
+        info: 'border-white/10 bg-white/10',
+        ok:   'border-emerald-400/30 bg-emerald-500/10',
+        warn: 'border-amber-400/30 bg-amber-500/10',
+        err:  'border-red-400/30 bg-red-500/10'
+      };
+      el.className = `glass ${colors[type] || colors.info} rounded-2xl px-4 py-3 text-sm text-white/85`;
+      el.textContent = msg;
       host.appendChild(el);
-      setTimeout(()=>{el.style.opacity='0';el.style.transform='translateY(6px)';el.style.transition='all .25s ease';},2600);
-      setTimeout(()=>el.remove(),2950);
+      setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; el.style.transition = 'all .25s ease'; }, 2600);
+      setTimeout(() => el.remove(), 2950);
     }
 
-    function normSpaces(s){return String(s||'').replace(/\u00A0/g,' ').replace(/[ \t]+/g,' ').replace(/\s+\n/g,'\n').replace(/\n\s+/g,'\n').trim();}
-    function todayISO(){const d=new Date();const p=x=>String(x).padStart(2,'0');return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`;}
-
-    function formatIDR(n){
-      if(n==null||n==='') return '';
-      const num=typeof n==='number'?n:Number(String(n).replace(/[^0-9]/g,''));
-      if(!Number.isFinite(num)) return String(n);
-      return 'IDR '+num.toLocaleString('id-ID');
-    }
-    
-    function parseIDR(str){
-      if(!str) return null;
-      const m=String(str).match(/\b(?:IDR|Rp)\s*([0-9][0-9\.\,]*)/i);
-      if(!m) return null;
-      return Number(m[1].replace(/\./g,'').replace(/\,/g,''));
+    function normSpaces(s) {
+      return String(s || '').replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').trim();
     }
 
-    function extractDate(text){
-      const t=String(text||'');
-      let m=t.match(/Cetak\s*[:\-]?\s*(\d{2}[\-\/]\d{2}[\-\/]\d{4})/i);
-      if(m) return m[1].replace(/\//g,'-');
+    function todayISO() {
+      const d = new Date();
+      const p = x => String(x).padStart(2, '0');
+      return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
+    }
+
+    function formatIDR(n) {
+      if (n == null || n === '') return '';
+      const num = typeof n === 'number' ? n : Number(String(n).replace(/[^0-9]/g, ''));
+      if (!Number.isFinite(num)) return String(n);
+      return 'IDR ' + num.toLocaleString('id-ID');
+    }
+
+    function parseIDR(str) {
+      if (!str) return null;
+      const m = String(str).match(/\b(?:IDR|Rp)\s*([0-9][0-9\.,]*)/i);
+      if (!m) return null;
+      return Number(m[1].replace(/\./g, '').replace(/,/g, ''));
+    }
+
+    function extractDate(text) {
+      const t = String(text || '');
+      const m = t.match(/Cetak\s*[:\-]?\s*(\d{2}[\-\/]\d{2}[\-\/]\d{4})/i);
+      if (m) return m[1].replace(/\//g, '-');
       return todayISO();
     }
 
-    function extractWaybill(text){
-      const m=String(text||'').match(/\b(\d{8,14})\b/);
+    function extractWaybill(text) {
+      const m = String(text || '').match(/\b(\d{8,14})\b/);
       return m ? m[1] : '';
     }
 
-    function extractReceiver(text){
-      const m=String(text||'').match(/Penerima\s*:\s*([^\n\r]+?)(?=\n|$)/i);
+    function extractReceiver(text) {
+      const m = String(text || '').match(/Penerima\s*:\s*([^\n\r]+?)(?=\n|$)/i);
       return m ? normSpaces(m[1]) : '';
     }
 
-    function extractKecamatanKota(text){
-      const t=String(text||'');
-      const kec=(t.match(/\bKEC\.?\s*([A-Z0-9\-\s]{3,40})/i)||[])[1]||'';
-      const kab=(t.match(/\bKAB\.?\s*([A-Z0-9\-\s]{3,40})/i)||[])[1]||'';
-      const clean=(s)=>normSpaces(s).split(' ').slice(0,2).join(' ');
-      return [kec?('KEC '+clean(kec)):'', kab?('KAB '+clean(kab)):''].filter(Boolean).join(' / ');
+    function extractKecamatanKota(text) {
+      const t   = String(text || '');
+      const kec = (t.match(/\bKEC\.?\s*([A-Z0-9\-\s]{3,40})/i) || [])[1] || '';
+      const kab = (t.match(/\bKAB\.?\s*([A-Z0-9\-\s]{3,40})/i) || [])[1] || '';
+      const clean = s => normSpaces(s).split(' ').slice(0, 2).join(' ');
+      return [kec ? ('KEC ' + clean(kec)) : '', kab ? ('KAB ' + clean(kab)) : ''].filter(Boolean).join(' / ');
     }
 
-    let files=[];
-    let rows=[];
+    // ── State ──────────────────────────────────────────────────────────────
+    let files = [];
+    let rows  = [];
 
-    async function ensurePdfJs(){
-      if(window.pdfjsLib) return true;
-      toast('Memuat PDF.js...','info');
-      return false;
-    }
+    // ── Parse PDF ─────────────────────────────────────────────────────────
+    async function parsePdfFile(file) {
+      const ok = await ensurePdfJs();
+      if (!ok) return null;
 
-    async function parseAll(){
-      if(files.length===0){toast('Pilih file dulu, Lur.','warn'); return;}
-      $('#status').textContent = 'Sedang memproses...';
-      
-      for(const f of files){
-        const reader = new FileReader();
-        reader.onload = async function(){
-          const typedarray = new Uint8Array(this.result);
-          const pdf = await pdfjsLib.getDocument(typedarray).promise;
-          let fullText = '';
-          for(let i=1; i<=pdf.numPages; i++){
-            const page = await pdf.getPage(i);
-            const content = await page.getTextContent();
-            fullText += content.items.map(s => s.str).join(' ');
-          }
-          
-          const row = {
-            _id: Math.random().toString(36).substr(2, 9),
-            tanggal: extractDate(fullText),
-            waybill: extractWaybill(fullText),
-            penerima: extractReceiver(fullText),
-            kecamatan: extractKecamatanKota(fullText),
-            biaya: parseIDR(fullText) || 0,
-            cod: fullText.includes('COD') ? 'Ya' : 'Tidak',
-            keterangan: f.name
-          };
-          rows.push(row);
-          render();
-        };
-        reader.readAsArrayBuffer(f);
+      const buf  = await file.arrayBuffer();
+      const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
+      let fullText = '';
+
+      for (let i = 1; i <= pdf.numPages; i++) {
+        const page    = await pdf.getPage(i);
+        const content = await page.getTextContent();
+        fullText += content.items.map(s => s.str).join(' ') + '\n';
       }
-      $('#status').textContent = 'Selesai!';
+
+      return {
+        _id:        Math.random().toString(36).substr(2, 9),
+        tanggal:    extractDate(fullText),
+        waybill:    extractWaybill(fullText),
+        penerima:   extractReceiver(fullText),
+        kecamatan:  extractKecamatanKota(fullText),
+        biaya:      parseIDR(fullText) || 0,
+        cod:        fullText.includes('COD') ? 'Ya' : 'Tidak',
+        keterangan: file.name
+      };
     }
 
-    function render(){
+    async function parseAll() {
+      if (!files.length) { toast('Pilih file dulu, Lur.', 'warn'); return; }
+      $('#status').textContent = 'Sedang memproses…';
+      $('#progress').classList.remove('hidden');
+
+      const merge = $('#optMerge').checked;
+      if (!merge) rows = [];
+
+      for (let idx = 0; idx < files.length; idx++) {
+        const pct = Math.round(((idx) / files.length) * 100);
+        $('#progressBar').style.width = pct + '%';
+        $('#status').textContent = `Memproses ${idx + 1}/${files.length}: ${files[idx].name}`;
+        const row = await parsePdfFile(files[idx]);
+        if (row) rows.push(row);
+        render();
+      }
+
+      $('#progressBar').style.width = '100%';
+      $('#status').textContent = `Selesai! ${rows.length} data.`;
+      toast(`${rows.length} resi berhasil diparsing.`, 'ok');
+      setTimeout(() => $('#progress').classList.add('hidden'), 1500);
+    }
+
+    function parseFromText() {
+      const raw = $('#rawText').value.trim();
+      if (!raw) { toast('Teks kosong.', 'warn'); return; }
+      const merge = $('#optMerge').checked;
+      if (!merge) rows = [];
+      const row = {
+        _id:        Math.random().toString(36).substr(2, 9),
+        tanggal:    extractDate(raw),
+        waybill:    extractWaybill(raw),
+        penerima:   extractReceiver(raw),
+        kecamatan:  extractKecamatanKota(raw),
+        biaya:      parseIDR(raw) || 0,
+        cod:        raw.includes('COD') ? 'Ya' : 'Tidak',
+        keterangan: 'teks-manual'
+      };
+      rows.push(row);
+      render();
+      toast('Parsed dari teks.', 'ok');
+    }
+
+    // ── Render ─────────────────────────────────────────────────────────────
+    function render(filter = '') {
       const tbody = $('#tbody');
       tbody.innerHTML = '';
-      rows.forEach((r, i) => {
+      const q = filter.toLowerCase();
+      let no = 0;
+      rows.forEach(r => {
+        const haystack = Object.values(r).join(' ').toLowerCase();
+        if (q && !haystack.includes(q)) return;
+        no++;
         const tr = document.createElement('tr');
+        tr.className = 'hover:bg-white/5 transition-colors';
         tr.innerHTML = `
-          <td class="px-4 py-3"><input type="checkbox"></td>
-          <td class="px-4 py-3">${i+1}</td>
+          <td class="px-4 py-3"><input type="checkbox" class="accent-violet-500 rowchk"></td>
+          <td class="px-4 py-3 text-white/60">${no}</td>
           <td class="px-4 py-3">${r.tanggal}</td>
-          <td class="px-4 py-3 font-semibold">${r.waybill}</td>
+          <td class="px-4 py-3 font-semibold mono">${r.waybill}</td>
           <td class="px-4 py-3">${r.penerima}</td>
-          <td class="px-4 py-3">${r.kecamatan}</td>
-          <td class="px-4 py-3 text-right">${formatIDR(r.biaya)}</td>
+          <td class="px-4 py-3 text-white/80">${r.kecamatan}</td>
+          <td class="px-4 py-3 text-right mono">${formatIDR(r.biaya)}</td>
           <td class="px-4 py-3 text-center">${r.cod}</td>
-          <td class="px-4 py-3">${r.keterangan}</td>
+          <td class="px-4 py-3 text-white/60 text-xs">${r.keterangan}</td>
         `;
         tbody.appendChild(tr);
       });
-      $('#detectedCount').textContent = rows.length;
+      $('#detectedCount').textContent = no;
     }
 
-    $('#file').addEventListener('change', (e)=>{
+    // ── Export ─────────────────────────────────────────────────────────────
+    function exportCSV() {
+      if (!rows.length) { toast('Tidak ada data.', 'warn'); return; }
+      const header = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
+      const csvRows = rows.map((r, i) => [
+        i + 1, r.tanggal, r.waybill, r.penerima, r.kecamatan, r.biaya, r.cod, r.keterangan
+      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
+      const csv  = [header.join(','), ...csvRows].join('\r\n');
+      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
+      const url  = URL.createObjectURL(blob);
+      const a    = Object.assign(document.createElement('a'), { href: url, download: `resi_${todayISO()}.csv` });
+      a.click();
+      URL.revokeObjectURL(url);
+      toast('CSV berhasil diexport!', 'ok');
+    }
+
+    function copyTSV() {
+      if (!rows.length) { toast('Tidak ada data.', 'warn'); return; }
+      const header = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
+      const lines  = rows.map((r, i) => [i + 1, r.tanggal, r.waybill, r.penerima, r.kecamatan, r.biaya, r.cod, r.keterangan].join('\t'));
+      navigator.clipboard.writeText([header.join('\t'), ...lines].join('\n')).then(() => toast('TSV disalin!', 'ok'));
+    }
+
+    // ── Event Listeners ────────────────────────────────────────────────────
+    $('#file').addEventListener('change', e => {
       files = Array.from(e.target.files);
       $('#fileCount').textContent = files.length;
-      toast(files.length + ' file siap.');
+      toast(files.length + ' file siap.', 'info');
     });
 
+    $('#btnPick').addEventListener('click', () => $('#file').click());
     $('#btnParse').addEventListener('click', parseAll);
-    $('#btnClear').addEventListener('click', ()=>{ rows=[]; files=[]; render(); toast('Data dibersihkan.'); });
-    
-    // Fallback worker
-    if(window.pdfjsLib) {
-        pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.2.67/pdf.worker.min.js';
-    }
+    $('#btnParseText').addEventListener('click', parseFromText);
+
+    $('#btnClear').addEventListener('click', () => {
+      rows = []; files = [];
+      $('#fileCount').textContent = '0';
+      render();
+      toast('Data dibersihkan.', 'info');
+    });
+
+    $$('#btnExport, #btnExport2').forEach(b => b.addEventListener('click', exportCSV));
+    $('#btnCopy').addEventListener('click', copyTSV);
+
+    $('#search').addEventListener('input', e => render(e.target.value));
+
+    $('#chkAll').addEventListener('change', e => {
+      $$('.rowchk').forEach(c => c.checked = e.target.checked);
+    });
+
+    $('#btnSelfTest').addEventListener('click', async () => {
+      $('#libStatus').textContent = 'Running self-test…';
+      const ok = await ensurePdfJs();
+      $('#libStatus').textContent = ok
+        ? '✓ Self-test passed. PDF.js siap digunakan.'
+        : '✗ Self-test gagal. Cek koneksi internet.';
+      toast(ok ? 'PDF.js OK!' : 'PDF.js gagal dimuat.', ok ? 'ok' : 'err');
+    });
+
+    // Drag & drop
+    const drop = $('#drop');
+    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
+    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      drop.classList.remove('dragover');
+      const dropped = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
+      if (!dropped.length) { toast('Hanya file PDF yang diterima.', 'warn'); return; }
+      files = dropped;
+      $('#fileCount').textContent = files.length;
+      toast(files.length + ' file di-drop.', 'info');
+    });
+
+    // Auto-load PDF.js di background saat halaman terbuka
+    ensurePdfJs();
   </script>
 </body>
 </html>
