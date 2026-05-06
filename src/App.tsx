@@ -42,23 +42,65 @@ function parseIDR(str: string): number {
 
 function extractDate(t: string): string {
   const m = String(t ?? '').match(
-    /(?:Cetak|Tanggal|Tgl)\s*[:\-]?\s*(\d{1,2}[\-\/]\d{1,2}[\-\/]\d{4})/i
+    /(?:Cetak|Tanggal|Tgl|Ship|Shipped)\s*[:\-]?\s*(\d{1,2}[\-\/]\d{1,2}[\-\/]\d{2,4})/i
   );
   return m ? m[1].replace(/\//g, '-') : todayISO();
 }
 
+/**
+ * extractWaybill — strategi berlapis:
+ * 1. Label eksplisit: "No. Resi", "Waybill", "AWB", "No. HP", dsb
+ * 2. Pola alfanumerik khas ekspedisi:
+ *    - JET  : 3 digit - 3 huruf 2 digit - 2 huruf 1 digit  (mis. 350-SOG07A-06C)
+ *    - JNE  : CEK\d+, JD\d+
+ *    - SiCepat: \d{12} atau SIPC\w+
+ *    - J&T  : JP\d+
+ *    - Anteraja: \d{12}
+ *    - Generic alfanumerik: \d{3,4}-[A-Z0-9]{4,}-[A-Z0-9]{2,}
+ * 3. Standalone pure numeric ≥ 8 digit di baris sendiri
+ * 4. Fallback: numeric 8–20 digit di mana saja
+ */
 function extractWaybill(t: string): string {
-  const byLabel = String(t ?? '').match(
-    /(?:No\.?\s*(?:Resi|Waybill|AWB)|Resi)\s*[:\-]?\s*([A-Z0-9]{6,20})/i
+  const text = String(t ?? '');
+
+  // 1. Label eksplisit
+  const byLabel = text.match(
+    /(?:No\.?\s*(?:Resi|Waybill|AWB|Airway\s*Bill)|Resi\s*No\.?|Waybill\s*No\.?|AWB\s*No\.?)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{5,24})/i
   );
-  if (byLabel) return byLabel[1];
-  const byNum = String(t ?? '').match(/\b([0-9]{8,16})\b/);
+  if (byLabel) return byLabel[1].toUpperCase();
+
+  // 2. Pola alfanumerik khas ekspedisi
+  const knownPatterns = [
+    // JET Express: 350-SOG07A-06C
+    /\b(\d{3}-[A-Z]{2,4}\d{2}[A-Z]-\d{2}[A-Z])\b/,
+    // Generic dash-pattern: ABC123-XYZ456-789
+    /\b([A-Z0-9]{3,6}-[A-Z0-9]{4,8}-[A-Z0-9]{2,6})\b/,
+    // JNE: CEK + digit atau JD + digit
+    /\b((?:CEK|JD|JP|SIPC|IDP|GKD|PAXEL)\d{6,18})\b/i,
+    // SiCepat / Anteraja 12 digit
+    /\b(\d{12})\b/,
+    // J&T / Ninja dll — 10 digit
+    /\b(\d{10})\b/,
+  ];
+  for (const pat of knownPatterns) {
+    const m = text.match(pat);
+    if (m) return m[1].toUpperCase();
+  }
+
+  // 3. Standalone numeric ≥ 8 digit di baris sendiri
+  for (const line of text.split(/[\n\r]+/)) {
+    const clean = normSpaces(line);
+    if (/^\d{8,20}$/.test(clean)) return clean;
+  }
+
+  // 4. Fallback numeric 8–20 digit
+  const byNum = text.match(/\b(\d{8,20})\b/);
   return byNum ? byNum[1] : '';
 }
 
 function extractReceiver(t: string): string {
   const m = String(t ?? '').match(
-    /(?:Penerima|Kepada|Nama\s+Penerima)\s*[:\-]?\s*([^\n\r]{3,60})/i
+    /(?:Penerima|Kepada|Nama\s+Penerima|Receiver)\s*[:\-]?\s*([^\n\r]{3,60})/i
   );
   return m ? normSpaces(m[1]) : '';
 }
@@ -405,6 +447,20 @@ export default function App() {
               >
                 <li>PDF scan (gambar)? Gunakan fitur OCR.</li>
                 <li>Parse gagal? Cek Console browser.</li>
+              </ul>
+            </div>
+
+            {/* Legend pola waybill */}
+            <div
+              className="mt-4 rounded-2xl p-4"
+              style={{ background: 'rgba(255,255,255,.04)', border: '1px solid rgba(255,255,255,.08)' }}
+            >
+              <div className="text-xs font-semibold mb-2" style={{ color: 'rgba(255,255,255,.60)' }}>Pola waybill yang dikenali</div>
+              <ul className="text-xs space-y-1" style={{ color: 'rgba(255,255,255,.50)' }}>
+                <li>JET Express — <span className="font-mono">350-SOG07A-06C</span></li>
+                <li>JNE / J&T — <span className="font-mono">CEK…, JP…</span></li>
+                <li>SiCepat / Anteraja — 12 digit</li>
+                <li>Generic — 8–20 digit standalone</li>
               </ul>
             </div>
           </aside>
