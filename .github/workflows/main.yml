@@ -21,7 +21,10 @@ jobs:
         run: npm install
 
       - name: Build
-        run: npm run build
+        run: npx vercel build --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
+        env:
+          VERCEL_ORG_ID: ${{ secrets.VERCL_ORG_ID }}
+          VERCEL_PROJECT_ID: ${{ secrets.VERCL_PROJECT_ID }}
 
       - name: Deploy to Vercel
         run: npx vercel deploy --prebuilt --prod --yes --token=${{ secrets.VERCEL_TOKEN }}
