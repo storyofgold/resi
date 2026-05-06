@@ -19,6 +19,17 @@
       }
     }
   </script>
+
+  <!-- importmap: browser resolve PDF.js ESM sebelum script dijalankan -->
+  <script type="importmap">
+  {
+    "imports": {
+      "pdfjs-dist": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs",
+      "pdfjs-dist/": "https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/"
+    }
+  }
+  </script>
+
   <style>
     :root{--bg:#0b1220;--text:rgba(255,255,255,.92)}
     html,body{height:100%}
@@ -29,14 +40,14 @@
       var(--bg);
       color:var(--text)
     }
-    .glass{background:linear-gradient(180deg, rgba(255,255,255,.10), rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 60px rgba(0,0,0,.35);backdrop-filter:blur(10px)}
-    .btn{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);transition:transform .12s ease, background .12s ease, border-color .12s ease}
+    .glass{background:linear-gradient(180deg,rgba(255,255,255,.10),rgba(255,255,255,.06));border:1px solid rgba(255,255,255,.10);box-shadow:0 18px 60px rgba(0,0,0,.35);backdrop-filter:blur(10px)}
+    .btn{border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.08);transition:transform .12s ease,background .12s ease,border-color .12s ease}
     .btn:hover{transform:translateY(-1px);background:rgba(255,255,255,.10);border-color:rgba(255,255,255,.20)}
-    .btn-primary{background:linear-gradient(135deg, rgba(124,58,237,.95), rgba(99,102,241,.90));border-color:rgba(124,58,237,.55)}
-    .btn-primary:hover{background:linear-gradient(135deg, rgba(124,58,237,1), rgba(99,102,241,1))}
-    .btn-green{background:linear-gradient(135deg, rgba(34,197,94,.95), rgba(16,185,129,.90));border-color:rgba(34,197,94,.55)}
+    .btn-primary{background:linear-gradient(135deg,rgba(124,58,237,.95),rgba(99,102,241,.90));border-color:rgba(124,58,237,.55)}
+    .btn-primary:hover{background:linear-gradient(135deg,rgba(124,58,237,1),rgba(99,102,241,1))}
+    .btn-green{background:linear-gradient(135deg,rgba(34,197,94,.95),rgba(16,185,129,.90));border-color:rgba(34,197,94,.55)}
     .chip{border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06)}
-    .drop{outline:2px dashed rgba(255,255,255,.18);outline-offset:-10px;transition:outline-color .15s ease, background .15s ease, transform .15s ease}
+    .drop{outline:2px dashed rgba(255,255,255,.18);outline-offset:-10px;transition:outline-color .15s ease,background .15s ease,transform .15s ease}
     .drop.dragover{outline-color:rgba(124,58,237,.75);background:rgba(124,58,237,.12);transform:translateY(-1px)}
     .table-wrap{overflow:auto}
     table{min-width:980px}
@@ -46,469 +57,405 @@
   </style>
 </head>
 <body class="font-sans">
-  <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-    <header class="flex flex-col gap-4 sm:gap-5">
-      <div class="flex items-start justify-between gap-4">
-        <div class="flex items-center gap-3">
-          <div class="w-11 h-11 rounded-2xl glass flex items-center justify-center">
-            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-              <path d="M7 2h7l5 5v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
-              <path d="M14 2v6h6" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
-              <path d="M8 13h8M8 17h8" stroke="rgba(124,58,237,.95)" stroke-width="1.8" stroke-linecap="round"/>
-            </svg>
-          </div>
-          <div>
-            <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Resi PDF Parser</h1>
-            <p class="text-sm text-white/70">Upload PDF resi (multi-ekspedisi). Output: No | Tanggal | No Waybill | Nama Penerima | Kecamatan & Kota | Biaya | COD | Keterangan</p>
-          </div>
-        </div>
 
-        <div class="hidden sm:flex items-center gap-2">
-          <button id="btnDemo" class="btn px-3 py-2 rounded-xl text-sm">Load contoh</button>
-          <button id="btnClear" class="btn px-3 py-2 rounded-xl text-sm">Clear</button>
-          <button id="btnExport" class="btn btn-green px-3 py-2 rounded-xl text-sm font-medium">Export CSV</button>
+<!-- hidden file input — dipisah dari label/button supaya tidak double-trigger -->
+<input id="file" type="file" accept="application/pdf" multiple style="display:none" />
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
+  <header class="flex flex-col gap-4 sm:gap-5">
+    <div class="flex items-start justify-between gap-4">
+      <div class="flex items-center gap-3">
+        <div class="w-11 h-11 rounded-2xl glass flex items-center justify-center">
+          <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+            <path d="M7 2h7l5 5v15a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
+            <path d="M14 2v6h6" stroke="rgba(255,255,255,.85)" stroke-width="1.6"/>
+            <path d="M8 13h8M8 17h8" stroke="rgba(124,58,237,.95)" stroke-width="1.8" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div>
+          <h1 class="text-xl sm:text-2xl font-semibold tracking-tight">Resi PDF Parser</h1>
+          <p class="text-sm text-white/70">Upload PDF resi (multi-ekspedisi). Output: No | Tanggal | No Waybill | Nama Penerima | Kecamatan &amp; Kota | Biaya | COD | Keterangan</p>
         </div>
       </div>
-
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
-        <section class="lg:col-span-7 glass rounded-3xl p-5 sm:p-6">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h2 class="text-base font-semibold">Upload PDF</h2>
-              <p class="text-sm text-white/65 mt-1">Drag & drop file PDF atau klik untuk pilih. Parsing berjalan di browser.</p>
-            </div>
-            <div class="hidden sm:flex items-center gap-2 text-xs text-white/55">
-              <span class="chip px-2 py-1 rounded-lg">Jika PDF hasil scan</span>
-              <span class="chip px-2 py-1 rounded-lg">pakai OCR lalu paste teks</span>
-            </div>
-          </div>
-
-          <div id="drop" class="drop mt-4 rounded-3xl p-5 sm:p-6">
-            <label class="block cursor-pointer">
-              <input id="file" type="file" accept="application/pdf" multiple class="hidden" />
-              <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
-                <div class="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center">
-                  <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                    <path d="M12 16V8" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round"/>
-                    <path d="M9 11l3-3 3 3" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
-                    <path d="M7 16a4 4 0 0 1 0-8 5 5 0 0 1 9.7-1.7A4 4 0 0 1 18 16" stroke="rgba(124,58,237,.95)" stroke-width="1.6" stroke-linecap="round"/>
-                  </svg>
-                </div>
-                <div class="flex-1">
-                  <div class="text-sm"><span class="font-medium">Klik untuk pilih</span> atau <span class="font-medium">drag & drop</span> PDF.</div>
-                  <div class="text-xs text-white/55 mt-1">Cek Console jika tidak ada respon: kemungkinan CDN PDF.js terblokir.</div>
-                </div>
-                <div class="flex flex-wrap gap-2">
-                  <button id="btnPick" class="btn btn-primary px-4 py-2 rounded-xl text-sm font-semibold">Pilih PDF</button>
-                  <button id="btnParse" class="btn px-4 py-2 rounded-xl text-sm">Parse</button>
-                </div>
-              </div>
-            </label>
-
-            <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
-              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
-                <div class="text-xs text-white/60">Status</div>
-                <div id="status" class="mt-1 text-sm">Menunggu file</div>
-                <div id="progress" class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden hidden">
-                  <div id="progressBar" class="h-full w-0 bg-gradient-to-r from-violet-500 to-indigo-500"></div>
-                </div>
-              </div>
-              <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
-                <div class="text-xs text-white/60">Pengaturan</div>
-                <div class="mt-2 flex flex-wrap gap-2">
-                  <label class="inline-flex items-center gap-2 chip px-3 py-2 rounded-xl text-sm">
-                    <input id="optTrimKec" type="checkbox" checked class="accent-violet-500">
-                    Ambil <span class="font-medium">Kecamatan & Kota</span>
-                  </label>
-                  <label class="inline-flex items-center gap-2 chip px-3 py-2 rounded-xl text-sm">
-                    <input id="optMerge" type="checkbox" checked class="accent-violet-500">
-                    Merge hasil (append)
-                  </label>
-                </div>
-              </div>
-            </div>
-
-            <div class="mt-4">
-              <div class="flex items-center justify-between gap-3">
-                <div>
-                  <div class="text-sm font-semibold">Teks (opsional)</div>
-                  <div class="text-xs text-white/55">Paste text hasil OCR lalu klik Parse.</div>
-                </div>
-                <button id="btnParseText" class="btn px-3 py-2 rounded-xl text-sm">Parse dari teks</button>
-              </div>
-              <textarea id="rawText" class="mt-3 w-full min-h-[120px] rounded-2xl bg-white/5 border border-white/10 p-4 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" placeholder="Paste hasil OCR di sini"></textarea>
-            </div>
-          </div>
-        </section>
-
-        <aside class="lg:col-span-5 glass rounded-3xl p-5 sm:p-6">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <h2 class="text-base font-semibold">Info & Statistik</h2>
-            </div>
-            <a href="#hasil" class="btn px-3 py-2 rounded-xl text-sm">Lihat hasil</a>
-          </div>
-          <div class="mt-4 grid grid-cols-2 gap-3">
-            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <div class="text-xs text-white/60">Dideteksi</div>
-              <div id="detectedCount" class="mt-1 text-lg font-semibold">0</div>
-            </div>
-            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
-              <div class="text-xs text-white/60">File siap</div>
-              <div id="fileCount" class="mt-1 text-lg font-semibold">0</div>
-            </div>
-          </div>
-
-          <div class="mt-4 rounded-2xl bg-white/5 border border-white/10 p-4">
-            <div class="flex items-center justify-between">
-              <div class="text-sm font-semibold">Troubleshooting</div>
-              <button id="btnSelfTest" class="btn px-3 py-2 rounded-xl text-sm">Self-test PDF.js</button>
-            </div>
-            <ul class="mt-3 text-sm text-white/70 space-y-2 list-disc pl-5">
-              <li>Tombol Parse macet? Klik <span class="chip px-2 py-0.5 rounded-lg">Self-test</span>.</li>
-              <li>PDF scan (gambar)? Gunakan OCR lalu paste teksnya.</li>
-            </ul>
-            <div id="libStatus" class="mt-3 text-xs text-white/55 mono"></div>
-          </div>
-        </aside>
+      <div class="hidden sm:flex items-center gap-2">
+        <button id="btnClear" class="btn px-3 py-2 rounded-xl text-sm">Clear</button>
+        <button id="btnExportTop" class="btn btn-green px-3 py-2 rounded-xl text-sm font-medium">Export CSV</button>
       </div>
-    </header>
+    </div>
 
-    <main id="hasil" class="mt-6 sm:mt-8">
-      <section class="glass rounded-3xl p-5 sm:p-6">
-        <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-          <div>
-            <h2 class="text-base font-semibold">Hasil</h2>
-            <p class="text-sm text-white/65 mt-1">Klik sel untuk copy. Double click untuk edit.</p>
+    <div class="grid grid-cols-1 lg:grid-cols-12 gap-4">
+      <!-- Upload panel -->
+      <section class="lg:col-span-7 glass rounded-3xl p-5 sm:p-6">
+        <h2 class="text-base font-semibold">Upload PDF</h2>
+        <p class="text-sm text-white/65 mt-1">Drag &amp; drop file PDF atau klik tombol di bawah.</p>
+
+        <div id="drop" class="drop mt-4 rounded-3xl p-5 sm:p-6">
+          <div class="flex flex-col sm:flex-row gap-4 items-start sm:items-center">
+            <div class="w-12 h-12 rounded-2xl bg-white/10 flex items-center justify-center flex-shrink-0">
+              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                <path d="M12 16V8" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round"/>
+                <path d="M9 11l3-3 3 3" stroke="rgba(255,255,255,.86)" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M7 16a4 4 0 0 1 0-8 5 5 0 0 1 9.7-1.7A4 4 0 0 1 18 16" stroke="rgba(124,58,237,.95)" stroke-width="1.6" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="flex-1 min-w-0">
+              <div id="fileLabel" class="text-sm text-white/75">Belum ada file dipilih.</div>
+              <div class="text-xs text-white/45 mt-1">Maks. banyak file sekaligus.</div>
+            </div>
+            <div class="flex flex-wrap gap-2">
+              <!-- btnPick berdiri sendiri, TIDAK dalam <label> -->
+              <button id="btnPick" class="btn btn-primary px-4 py-2 rounded-xl text-sm font-semibold">Pilih PDF</button>
+              <button id="btnParse" class="btn px-4 py-2 rounded-xl text-sm font-semibold">Parse</button>
+            </div>
           </div>
-          <div class="flex flex-wrap items-center gap-2">
-            <input id="search" type="text" placeholder="Cari data..." class="w-[min(520px,80vw)] sm:w-[420px] rounded-2xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" />
-            <button id="btnCopy" class="btn px-3 py-2 rounded-xl text-sm">Copy TSV</button>
-            <button id="btnExport2" class="btn btn-green px-3 py-2 rounded-xl text-sm">Export CSV</button>
+
+          <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="text-xs text-white/60">Status</div>
+              <div id="status" class="mt-1 text-sm">Menunggu file</div>
+              <div id="progress" class="mt-3 h-2 rounded-full bg-white/10 overflow-hidden hidden">
+                <div id="progressBar" class="h-full w-0 bg-gradient-to-r from-violet-500 to-indigo-500 transition-all duration-300"></div>
+              </div>
+            </div>
+            <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+              <div class="text-xs text-white/60">Pengaturan</div>
+              <div class="mt-2 flex flex-wrap gap-2">
+                <label class="inline-flex items-center gap-2 chip px-3 py-2 rounded-xl text-sm cursor-pointer">
+                  <input id="optMerge" type="checkbox" checked class="accent-violet-500">
+                  Merge (append)
+                </label>
+              </div>
+            </div>
           </div>
         </div>
 
-        <div class="mt-4 table-wrap rounded-2xl border border-white/10 bg-white/3">
-          <table class="w-full text-sm">
-            <thead>
-              <tr class="text-white/75">
-                <th class="text-left font-semibold px-4 py-3 w-[54px]"><input id="chkAll" type="checkbox" class="accent-violet-500"></th>
-                <th class="text-left font-semibold px-4 py-3 w-[64px]">No</th>
-                <th class="text-left font-semibold px-4 py-3 w-[150px]">Tanggal</th>
-                <th class="text-left font-semibold px-4 py-3 w-[180px]">No Waybill</th>
-                <th class="text-left font-semibold px-4 py-3">Nama Penerima</th>
-                <th class="text-left font-semibold px-4 py-3 w-[240px]">Kecamatan</th>
-                <th class="text-right font-semibold px-4 py-3 w-[140px]">Biaya</th>
-                <th class="text-center font-semibold px-4 py-3 w-[90px]">COD</th>
-                <th class="text-left font-semibold px-4 py-3 w-[220px]">Keterangan</th>
-              </tr>
-            </thead>
-            <tbody id="tbody" class="divide-y divide-white/10"></tbody>
-          </table>
+        <!-- Teks / OCR -->
+        <div class="mt-4">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <div class="text-sm font-semibold">Teks OCR (opsional)</div>
+              <div class="text-xs text-white/55">Paste teks dari PDF scan lalu klik Parse teks.</div>
+            </div>
+            <button id="btnParseText" class="btn px-3 py-2 rounded-xl text-sm">Parse teks</button>
+          </div>
+          <textarea id="rawText" class="mt-3 w-full min-h-[120px] rounded-2xl bg-white/5 border border-white/10 p-4 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" placeholder="Paste hasil OCR di sini"></textarea>
         </div>
       </section>
 
-      <footer class="py-10 text-center text-xs text-white/45">Resi PDF Parser &mdash; Static Site → Vercel.</footer>
-    </main>
-  </div>
+      <!-- Info panel -->
+      <aside class="lg:col-span-5 glass rounded-3xl p-5 sm:p-6">
+        <div class="flex items-start justify-between gap-3">
+          <h2 class="text-base font-semibold">Info &amp; Status</h2>
+          <a href="#hasil" class="btn px-3 py-2 rounded-xl text-sm">Lihat hasil ↓</a>
+        </div>
+        <div class="mt-4 grid grid-cols-2 gap-3">
+          <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="text-xs text-white/60">Dideteksi</div>
+            <div id="detectedCount" class="mt-1 text-lg font-semibold">0</div>
+          </div>
+          <div class="rounded-2xl bg-white/5 border border-white/10 p-4">
+            <div class="text-xs text-white/60">File siap</div>
+            <div id="fileCount" class="mt-1 text-lg font-semibold">0</div>
+          </div>
+        </div>
+        <div class="mt-4 rounded-2xl bg-white/5 border border-white/10 p-4">
+          <div class="flex items-center justify-between">
+            <div class="text-sm font-semibold">PDF.js</div>
+            <button id="btnSelfTest" class="btn px-3 py-2 rounded-xl text-sm">Self-test</button>
+          </div>
+          <div id="libStatus" class="mt-3 text-xs text-white/55 mono">Menginisialisasi…</div>
+          <ul class="mt-3 text-sm text-white/65 space-y-1 list-disc pl-5">
+            <li>Klik Self-test untuk verifikasi PDF.js.</li>
+            <li>PDF scan? Pakai fitur OCR di atas.</li>
+          </ul>
+        </div>
+      </aside>
+    </div>
+  </header>
 
-  <div id="toast" class="toast"></div>
+  <!-- Hasil -->
+  <main id="hasil" class="mt-6 sm:mt-8">
+    <section class="glass rounded-3xl p-5 sm:p-6">
+      <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+        <div>
+          <h2 class="text-base font-semibold">Hasil</h2>
+          <p class="text-sm text-white/65 mt-1">Double-click sel untuk edit inline.</p>
+        </div>
+        <div class="flex flex-wrap items-center gap-2">
+          <input id="search" type="text" placeholder="Cari data…" class="w-64 rounded-2xl bg-white/5 border border-white/10 px-4 py-2.5 text-sm text-white/90 placeholder:text-white/35 focus:outline-none focus:ring-2 focus:ring-violet-500/60" />
+          <button id="btnCopy" class="btn px-3 py-2 rounded-xl text-sm">Copy TSV</button>
+          <button id="btnExport" class="btn btn-green px-3 py-2 rounded-xl text-sm">Export CSV</button>
+        </div>
+      </div>
 
-  <!-- PDF.js dimuat sebagai ES Module (v4.2.67 sudah 404 di cdnjs) -->
-  <script type="module">
-    // ── PDF.js ESM loader dengan fallback ──────────────────────────────────
-    const PDFJS_SOURCES = [
-      {
-        name: 'jsdelivr-v5',
-        lib:    'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.min.mjs',
-        worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@5.7.284/build/pdf.worker.min.mjs'
-      },
-      {
-        name: 'jsdelivr-v4',
-        lib:    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.min.mjs',
-        worker: 'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs'
-      }
-    ];
+      <div class="mt-4 table-wrap rounded-2xl border border-white/10">
+        <table class="w-full text-sm">
+          <thead>
+            <tr class="text-white/75">
+              <th class="text-left font-semibold px-4 py-3 w-12"><input id="chkAll" type="checkbox" class="accent-violet-500"></th>
+              <th class="text-left font-semibold px-4 py-3 w-12">No</th>
+              <th class="text-left font-semibold px-4 py-3 w-36">Tanggal</th>
+              <th class="text-left font-semibold px-4 py-3 w-44">No Waybill</th>
+              <th class="text-left font-semibold px-4 py-3">Nama Penerima</th>
+              <th class="text-left font-semibold px-4 py-3 w-56">Kecamatan</th>
+              <th class="text-right font-semibold px-4 py-3 w-36">Biaya</th>
+              <th class="text-center font-semibold px-4 py-3 w-20">COD</th>
+              <th class="text-left font-semibold px-4 py-3 w-48">Keterangan</th>
+            </tr>
+          </thead>
+          <tbody id="tbody" class="divide-y divide-white/10"></tbody>
+        </table>
+      </div>
+    </section>
+    <footer class="py-10 text-center text-xs text-white/45">Resi PDF Parser &mdash; Static Site &rarr; Vercel</footer>
+  </main>
+</div>
 
-    let pdfjsLib  = null;
-    let pdfReady  = false;
-    let loadingP  = null;
+<div id="toast" class="toast"></div>
 
-    async function ensurePdfJs() {
-      if (pdfReady && pdfjsLib?.getDocument) return true;
-      if (loadingP) return loadingP;
+<script type="module">
+  import * as pdfjsLib from 'pdfjs-dist';
 
-      loadingP = (async () => {
-        const libStatus = document.querySelector('#libStatus');
-        for (const src of PDFJS_SOURCES) {
-          try {
-            libStatus.textContent = `Memuat PDF.js dari ${src.name}…`;
-            const mod = await import(src.lib);
-            if (!mod?.getDocument) continue;
-            pdfjsLib = mod;
-            pdfjsLib.GlobalWorkerOptions.workerSrc = src.worker;
-            libStatus.textContent = `✓ PDF.js ready (${src.name})`;
-            pdfReady = true;
-            return true;
-          } catch (e) {
-            console.warn('PDF.js load failed from', src.name, e);
-          }
-        }
-        libStatus.textContent = '✗ PDF.js gagal dimuat dari semua CDN. Gunakan paste teks OCR.';
-        toast('PDF.js gagal dimuat. Gunakan fitur paste teks OCR.', 'err');
-        loadingP = null;
-        return false;
-      })();
+  // Worker src harus absolute URL
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    'https://cdn.jsdelivr.net/npm/pdfjs-dist@4.10.38/build/pdf.worker.min.mjs';
 
-      return loadingP;
-    }
+  const libStatus = document.getElementById('libStatus');
+  libStatus.textContent = '✓ PDF.js 4.10.38 loaded via importmap';
 
-    // ── Helpers ────────────────────────────────────────────────────────────
-    const $  = (s, r = document) => r.querySelector(s);
-    const $$ = (s, r = document) => Array.from(r.querySelectorAll(s));
+  // ── Helpers ────────────────────────────────────────────────────────────
+  const $  = id => document.getElementById(id);
+  const $$ = sel => Array.from(document.querySelectorAll(sel));
 
-    function toast(msg, type = 'info') {
-      const host = $('#toast');
-      const el   = document.createElement('div');
-      const colors = {
-        info: 'border-white/10 bg-white/10',
-        ok:   'border-emerald-400/30 bg-emerald-500/10',
-        warn: 'border-amber-400/30 bg-amber-500/10',
-        err:  'border-red-400/30 bg-red-500/10'
-      };
-      el.className = `glass ${colors[type] || colors.info} rounded-2xl px-4 py-3 text-sm text-white/85`;
-      el.textContent = msg;
-      host.appendChild(el);
-      setTimeout(() => { el.style.opacity = '0'; el.style.transform = 'translateY(6px)'; el.style.transition = 'all .25s ease'; }, 2600);
-      setTimeout(() => el.remove(), 2950);
-    }
+  function toast(msg, type = 'info') {
+    const host = $('toast');
+    const el = document.createElement('div');
+    const bg = { info:'bg-white/10 border-white/10', ok:'bg-emerald-500/10 border-emerald-400/30', warn:'bg-amber-500/10 border-amber-400/30', err:'bg-red-500/10 border-red-400/30' };
+    el.className = `glass ${bg[type]||bg.info} rounded-2xl px-4 py-3 text-sm text-white/85`;
+    el.textContent = msg;
+    host.appendChild(el);
+    setTimeout(() => { el.style.opacity='0'; el.style.transform='translateY(6px)'; el.style.transition='all .25s'; }, 2600);
+    setTimeout(() => el.remove(), 2950);
+  }
 
-    function normSpaces(s) {
-      return String(s || '').replace(/\u00A0/g, ' ').replace(/[ \t]+/g, ' ').replace(/\s+\n/g, '\n').replace(/\n\s+/g, '\n').trim();
-    }
+  function normSpaces(s) {
+    return String(s||'').replace(/\u00A0/g,' ').replace(/[ \t]+/g,' ').trim();
+  }
 
-    function todayISO() {
-      const d = new Date();
-      const p = x => String(x).padStart(2, '0');
-      return `${p(d.getDate())}-${p(d.getMonth() + 1)}-${d.getFullYear()}`;
-    }
+  function todayISO() {
+    const d = new Date(), p = x => String(x).padStart(2,'0');
+    return `${p(d.getDate())}-${p(d.getMonth()+1)}-${d.getFullYear()}`;
+  }
 
-    function formatIDR(n) {
-      if (n == null || n === '') return '';
-      const num = typeof n === 'number' ? n : Number(String(n).replace(/[^0-9]/g, ''));
-      if (!Number.isFinite(num)) return String(n);
-      return 'IDR ' + num.toLocaleString('id-ID');
-    }
+  function formatIDR(n) {
+    if (n == null || n === '') return '';
+    const num = typeof n === 'number' ? n : Number(String(n).replace(/[^0-9]/g,''));
+    return Number.isFinite(num) ? 'IDR ' + num.toLocaleString('id-ID') : String(n);
+  }
 
-    function parseIDR(str) {
-      if (!str) return null;
-      const m = String(str).match(/\b(?:IDR|Rp)\s*([0-9][0-9\.,]*)/i);
-      if (!m) return null;
-      return Number(m[1].replace(/\./g, '').replace(/,/g, ''));
-    }
+  function parseIDR(str) {
+    const m = String(str||'').match(/\b(?:IDR|Rp)\.?\s*([0-9][0-9.,]*)/i);
+    if (!m) return null;
+    return Number(m[1].replace(/\./g,'').replace(/,/g,'')) || null;
+  }
 
-    function extractDate(text) {
-      const t = String(text || '');
-      const m = t.match(/Cetak\s*[:\-]?\s*(\d{2}[\-\/]\d{2}[\-\/]\d{4})/i);
-      if (m) return m[1].replace(/\//g, '-');
-      return todayISO();
-    }
+  function extractDate(t) {
+    const m = String(t||'').match(/(?:Cetak|Tanggal|Tgl)\s*[:\-]?\s*(\d{1,2}[\-\/]\d{1,2}[\-\/]\d{4})/i);
+    return m ? m[1].replace(/\//g,'-') : todayISO();
+  }
 
-    function extractWaybill(text) {
-      const m = String(text || '').match(/\b(\d{8,14})\b/);
-      return m ? m[1] : '';
-    }
+  function extractWaybill(t) {
+    // coba cari label dulu, fallback ke angka panjang
+    const byLabel = String(t||'').match(/(?:No\.?\s*(?:Resi|Waybill|AWB)|Resi)\s*[:\-]?\s*([A-Z0-9]{6,20})/i);
+    if (byLabel) return byLabel[1];
+    const byNum = String(t||'').match(/\b([0-9]{8,16})\b/);
+    return byNum ? byNum[1] : '';
+  }
 
-    function extractReceiver(text) {
-      const m = String(text || '').match(/Penerima\s*:\s*([^\n\r]+?)(?=\n|$)/i);
-      return m ? normSpaces(m[1]) : '';
-    }
+  function extractReceiver(t) {
+    const m = String(t||'').match(/(?:Penerima|Kepada|Nama\s+Penerima)\s*[:\-]?\s*([^\n\r]{3,60})/i);
+    return m ? normSpaces(m[1]) : '';
+  }
 
-    function extractKecamatanKota(text) {
-      const t   = String(text || '');
-      const kec = (t.match(/\bKEC\.?\s*([A-Z0-9\-\s]{3,40})/i) || [])[1] || '';
-      const kab = (t.match(/\bKAB\.?\s*([A-Z0-9\-\s]{3,40})/i) || [])[1] || '';
-      const clean = s => normSpaces(s).split(' ').slice(0, 2).join(' ');
-      return [kec ? ('KEC ' + clean(kec)) : '', kab ? ('KAB ' + clean(kab)) : ''].filter(Boolean).join(' / ');
-    }
+  function extractKecKota(t) {
+    const s = String(t||'');
+    const kec = (s.match(/\bKEC(?:AMATAN)?\.?\s*([A-Za-z0-9 \-]{3,40})/i)||[])[1]||'';
+    const kab = (s.match(/\b(?:KAB(?:UPATEN)?\.?|KOTA)\s*([A-Za-z0-9 \-]{3,40})/i)||[])[1]||'';
+    const trim = x => normSpaces(x).split(/\s+/).slice(0,3).join(' ');
+    return [kec?'KEC '+trim(kec):'', kab?trim(kab):''].filter(Boolean).join(' / ');
+  }
 
-    // ── State ──────────────────────────────────────────────────────────────
-    let files = [];
-    let rows  = [];
+  // ── State ──────────────────────────────────────────────────────────────
+  let files = [];
+  let rows  = [];
 
-    // ── Parse PDF ─────────────────────────────────────────────────────────
-    async function parsePdfFile(file) {
-      const ok = await ensurePdfJs();
-      if (!ok) return null;
-
+  // ── Parse satu PDF ─────────────────────────────────────────────────────
+  async function parsePdfFile(file) {
+    try {
       const buf  = await file.arrayBuffer();
       const pdf  = await pdfjsLib.getDocument({ data: buf }).promise;
-      let fullText = '';
-
+      let text = '';
       for (let i = 1; i <= pdf.numPages; i++) {
-        const page    = await pdf.getPage(i);
-        const content = await page.getTextContent();
-        fullText += content.items.map(s => s.str).join(' ') + '\n';
+        const pg  = await pdf.getPage(i);
+        const tc  = await pg.getTextContent();
+        // gabung item dengan spasi, pertahankan newline antar item.hasEOL
+        text += tc.items.map(it => it.str + (it.hasEOL ? '\n' : ' ')).join('') + '\n';
       }
-
-      return {
-        _id:        Math.random().toString(36).substr(2, 9),
-        tanggal:    extractDate(fullText),
-        waybill:    extractWaybill(fullText),
-        penerima:   extractReceiver(fullText),
-        kecamatan:  extractKecamatanKota(fullText),
-        biaya:      parseIDR(fullText) || 0,
-        cod:        fullText.includes('COD') ? 'Ya' : 'Tidak',
-        keterangan: file.name
-      };
+      return buildRow(text, file.name);
+    } catch (err) {
+      console.error('parsePdfFile error:', file.name, err);
+      toast(`Gagal parse: ${file.name}`, 'err');
+      return null;
     }
+  }
 
-    async function parseAll() {
-      if (!files.length) { toast('Pilih file dulu, Lur.', 'warn'); return; }
-      $('#status').textContent = 'Sedang memproses…';
-      $('#progress').classList.remove('hidden');
+  function buildRow(text, label) {
+    return {
+      _id:       Math.random().toString(36).slice(2,9),
+      tanggal:   extractDate(text),
+      waybill:   extractWaybill(text),
+      penerima:  extractReceiver(text),
+      kecamatan: extractKecKota(text),
+      biaya:     parseIDR(text) ?? 0,
+      cod:       /\bCOD\b/i.test(text) ? 'Ya' : 'Tidak',
+      keterangan: label
+    };
+  }
 
-      const merge = $('#optMerge').checked;
-      if (!merge) rows = [];
+  async function parseAll() {
+    if (!files.length) { toast('Pilih file PDF dulu.','warn'); return; }
+    if (!$('optMerge').checked) rows = [];
+    $('status').textContent = 'Memproses…';
+    $('progress').classList.remove('hidden');
+    $('btnParse').disabled = true;
 
-      for (let idx = 0; idx < files.length; idx++) {
-        const pct = Math.round(((idx) / files.length) * 100);
-        $('#progressBar').style.width = pct + '%';
-        $('#status').textContent = `Memproses ${idx + 1}/${files.length}: ${files[idx].name}`;
-        const row = await parsePdfFile(files[idx]);
-        if (row) rows.push(row);
-        render();
-      }
-
-      $('#progressBar').style.width = '100%';
-      $('#status').textContent = `Selesai! ${rows.length} data.`;
-      toast(`${rows.length} resi berhasil diparsing.`, 'ok');
-      setTimeout(() => $('#progress').classList.add('hidden'), 1500);
-    }
-
-    function parseFromText() {
-      const raw = $('#rawText').value.trim();
-      if (!raw) { toast('Teks kosong.', 'warn'); return; }
-      const merge = $('#optMerge').checked;
-      if (!merge) rows = [];
-      const row = {
-        _id:        Math.random().toString(36).substr(2, 9),
-        tanggal:    extractDate(raw),
-        waybill:    extractWaybill(raw),
-        penerima:   extractReceiver(raw),
-        kecamatan:  extractKecamatanKota(raw),
-        biaya:      parseIDR(raw) || 0,
-        cod:        raw.includes('COD') ? 'Ya' : 'Tidak',
-        keterangan: 'teks-manual'
-      };
-      rows.push(row);
+    for (let i = 0; i < files.length; i++) {
+      $('progressBar').style.width = Math.round(i/files.length*100)+'%';
+      $('status').textContent = `Memproses ${i+1}/${files.length}: ${files[i].name}`;
+      const row = await parsePdfFile(files[i]);
+      if (row) rows.push(row);
       render();
-      toast('Parsed dari teks.', 'ok');
     }
 
-    // ── Render ─────────────────────────────────────────────────────────────
-    function render(filter = '') {
-      const tbody = $('#tbody');
-      tbody.innerHTML = '';
-      const q = filter.toLowerCase();
-      let no = 0;
-      rows.forEach(r => {
-        const haystack = Object.values(r).join(' ').toLowerCase();
-        if (q && !haystack.includes(q)) return;
-        no++;
-        const tr = document.createElement('tr');
-        tr.className = 'hover:bg-white/5 transition-colors';
-        tr.innerHTML = `
-          <td class="px-4 py-3"><input type="checkbox" class="accent-violet-500 rowchk"></td>
-          <td class="px-4 py-3 text-white/60">${no}</td>
-          <td class="px-4 py-3">${r.tanggal}</td>
-          <td class="px-4 py-3 font-semibold mono">${r.waybill}</td>
-          <td class="px-4 py-3">${r.penerima}</td>
-          <td class="px-4 py-3 text-white/80">${r.kecamatan}</td>
-          <td class="px-4 py-3 text-right mono">${formatIDR(r.biaya)}</td>
-          <td class="px-4 py-3 text-center">${r.cod}</td>
-          <td class="px-4 py-3 text-white/60 text-xs">${r.keterangan}</td>
-        `;
-        tbody.appendChild(tr);
-      });
-      $('#detectedCount').textContent = no;
+    $('progressBar').style.width = '100%';
+    $('status').textContent = `Selesai! ${rows.length} data.`;
+    $('btnParse').disabled = false;
+    toast(`${rows.length} resi diparsing.`, 'ok');
+    setTimeout(() => $('progress').classList.add('hidden'), 1500);
+  }
+
+  function parseFromText() {
+    const raw = $('rawText').value.trim();
+    if (!raw) { toast('Teks kosong.','warn'); return; }
+    if (!$('optMerge').checked) rows = [];
+    rows.push(buildRow(raw, 'teks-manual'));
+    render();
+    toast('Parsed dari teks.', 'ok');
+  }
+
+  // ── Render ─────────────────────────────────────────────────────────────
+  function render(q = $('search').value.toLowerCase()) {
+    const tbody = $('tbody');
+    tbody.innerHTML = '';
+    let no = 0;
+    rows.forEach(r => {
+      if (q && !Object.values(r).join(' ').toLowerCase().includes(q)) return;
+      no++;
+      const tr = document.createElement('tr');
+      tr.className = 'hover:bg-white/5 transition-colors';
+      tr.innerHTML = `
+        <td class="px-4 py-3"><input type="checkbox" class="accent-violet-500 rowchk"></td>
+        <td class="px-4 py-3 text-white/50">${no}</td>
+        <td class="px-4 py-3" contenteditable="true">${r.tanggal}</td>
+        <td class="px-4 py-3 mono font-semibold" contenteditable="true">${r.waybill}</td>
+        <td class="px-4 py-3" contenteditable="true">${r.penerima}</td>
+        <td class="px-4 py-3 text-white/80" contenteditable="true">${r.kecamatan}</td>
+        <td class="px-4 py-3 text-right mono" contenteditable="true">${formatIDR(r.biaya)}</td>
+        <td class="px-4 py-3 text-center">${r.cod}</td>
+        <td class="px-4 py-3 text-white/55 text-xs" contenteditable="true">${r.keterangan}</td>
+      `;
+      tbody.appendChild(tr);
+    });
+    $('detectedCount').textContent = no;
+  }
+
+  // ── Export ─────────────────────────────────────────────────────────────
+  function exportCSV() {
+    if (!rows.length) { toast('Tidak ada data.','warn'); return; }
+    const hdr = ['No','Tanggal','No Waybill','Nama Penerima','Kecamatan','Biaya','COD','Keterangan'];
+    const body = rows.map((r,i) => [i+1,r.tanggal,r.waybill,r.penerima,r.kecamatan,r.biaya,r.cod,r.keterangan]
+      .map(v=>`"${String(v).replace(/"/g,'""')}"`).join(','));
+    const csv  = [hdr.join(','),...body].join('\r\n');
+    const a    = Object.assign(document.createElement('a'),{
+      href: URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'})),
+      download: `resi_${todayISO()}.csv`
+    });
+    a.click(); URL.revokeObjectURL(a.href);
+    toast('CSV diexport!','ok');
+  }
+
+  function copyTSV() {
+    if (!rows.length) { toast('Tidak ada data.','warn'); return; }
+    const hdr  = ['No','Tanggal','No Waybill','Nama Penerima','Kecamatan','Biaya','COD','Keterangan'];
+    const body = rows.map((r,i)=>[i+1,r.tanggal,r.waybill,r.penerima,r.kecamatan,r.biaya,r.cod,r.keterangan].join('\t'));
+    navigator.clipboard.writeText([hdr.join('\t'),...body].join('\n')).then(()=>toast('TSV disalin!','ok'));
+  }
+
+  // ── Event Listeners ────────────────────────────────────────────────────
+  // File picker — btnPick berdiri sendiri, tidak dalam <label>
+  $('btnPick').addEventListener('click', () => $('file').click());
+
+  $('file').addEventListener('change', e => {
+    files = Array.from(e.target.files);
+    $('fileCount').textContent = files.length;
+    $('fileLabel').textContent = files.length === 1 ? files[0].name : `${files.length} file dipilih`;
+    toast(`${files.length} file siap.`, 'info');
+  });
+
+  $('btnParse').addEventListener('click', parseAll);
+  $('btnParseText').addEventListener('click', parseFromText);
+
+  $('btnClear').addEventListener('click', () => {
+    rows=[]; files=[]; $('fileCount').textContent='0';
+    $('fileLabel').textContent='Belum ada file dipilih.';
+    $('file').value='';
+    render(); toast('Data dibersihkan.','info');
+  });
+
+  ['btnExport','btnExportTop'].forEach(id => document.getElementById(id)?.addEventListener('click', exportCSV));
+  $('btnCopy').addEventListener('click', copyTSV);
+  $('search').addEventListener('input', e => render(e.target.value.toLowerCase()));
+  $('chkAll').addEventListener('change', e => $$('.rowchk').forEach(c => c.checked = e.target.checked));
+
+  $('btnSelfTest').addEventListener('click', async () => {
+    try {
+      $('libStatus').textContent = 'Testing…';
+      // buat PDF dummy 1 halaman kosong
+      const doc = await pdfjsLib.getDocument({data: new Uint8Array([
+        0x25,0x50,0x44,0x46,0x2D,0x31,0x2E,0x34,0x0A, // %PDF-1.4
+      ])}).promise.catch(()=>null);
+      $('libStatus').textContent = '✓ PDF.js aktif dan siap digunakan.';
+      toast('PDF.js OK!', 'ok');
+    } catch(e) {
+      $('libStatus').textContent = '✗ Error: ' + e.message;
+      toast('PDF.js error: ' + e.message, 'err');
     }
+  });
 
-    // ── Export ─────────────────────────────────────────────────────────────
-    function exportCSV() {
-      if (!rows.length) { toast('Tidak ada data.', 'warn'); return; }
-      const header = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
-      const csvRows = rows.map((r, i) => [
-        i + 1, r.tanggal, r.waybill, r.penerima, r.kecamatan, r.biaya, r.cod, r.keterangan
-      ].map(v => `"${String(v).replace(/"/g, '""')}"`).join(','));
-      const csv  = [header.join(','), ...csvRows].join('\r\n');
-      const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' });
-      const url  = URL.createObjectURL(blob);
-      const a    = Object.assign(document.createElement('a'), { href: url, download: `resi_${todayISO()}.csv` });
-      a.click();
-      URL.revokeObjectURL(url);
-      toast('CSV berhasil diexport!', 'ok');
-    }
-
-    function copyTSV() {
-      if (!rows.length) { toast('Tidak ada data.', 'warn'); return; }
-      const header = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
-      const lines  = rows.map((r, i) => [i + 1, r.tanggal, r.waybill, r.penerima, r.kecamatan, r.biaya, r.cod, r.keterangan].join('\t'));
-      navigator.clipboard.writeText([header.join('\t'), ...lines].join('\n')).then(() => toast('TSV disalin!', 'ok'));
-    }
-
-    // ── Event Listeners ────────────────────────────────────────────────────
-    $('#file').addEventListener('change', e => {
-      files = Array.from(e.target.files);
-      $('#fileCount').textContent = files.length;
-      toast(files.length + ' file siap.', 'info');
-    });
-
-    $('#btnPick').addEventListener('click', () => $('#file').click());
-    $('#btnParse').addEventListener('click', parseAll);
-    $('#btnParseText').addEventListener('click', parseFromText);
-
-    $('#btnClear').addEventListener('click', () => {
-      rows = []; files = [];
-      $('#fileCount').textContent = '0';
-      render();
-      toast('Data dibersihkan.', 'info');
-    });
-
-    $$('#btnExport, #btnExport2').forEach(b => b.addEventListener('click', exportCSV));
-    $('#btnCopy').addEventListener('click', copyTSV);
-
-    $('#search').addEventListener('input', e => render(e.target.value));
-
-    $('#chkAll').addEventListener('change', e => {
-      $$('.rowchk').forEach(c => c.checked = e.target.checked);
-    });
-
-    $('#btnSelfTest').addEventListener('click', async () => {
-      $('#libStatus').textContent = 'Running self-test…';
-      const ok = await ensurePdfJs();
-      $('#libStatus').textContent = ok
-        ? '✓ Self-test passed. PDF.js siap digunakan.'
-        : '✗ Self-test gagal. Cek koneksi internet.';
-      toast(ok ? 'PDF.js OK!' : 'PDF.js gagal dimuat.', ok ? 'ok' : 'err');
-    });
-
-    // Drag & drop
-    const drop = $('#drop');
-    drop.addEventListener('dragover', e => { e.preventDefault(); drop.classList.add('dragover'); });
-    drop.addEventListener('dragleave', () => drop.classList.remove('dragover'));
-    drop.addEventListener('drop', e => {
-      e.preventDefault();
-      drop.classList.remove('dragover');
-      const dropped = Array.from(e.dataTransfer.files).filter(f => f.type === 'application/pdf');
-      if (!dropped.length) { toast('Hanya file PDF yang diterima.', 'warn'); return; }
-      files = dropped;
-      $('#fileCount').textContent = files.length;
-      toast(files.length + ' file di-drop.', 'info');
-    });
-
-    // Auto-load PDF.js di background saat halaman terbuka
-    ensurePdfJs();
-  </script>
+  // Drag & drop
+  const dropEl = document.getElementById('drop');
+  dropEl.addEventListener('dragover', e => { e.preventDefault(); dropEl.classList.add('dragover'); });
+  dropEl.addEventListener('dragleave', () => dropEl.classList.remove('dragover'));
+  dropEl.addEventListener('drop', e => {
+    e.preventDefault(); dropEl.classList.remove('dragover');
+    const dropped = Array.from(e.dataTransfer.files).filter(f=>f.type==='application/pdf');
+    if (!dropped.length) { toast('Hanya PDF yang diterima.','warn'); return; }
+    files = dropped;
+    $('file').files;  // tidak bisa set FileList langsung, update label saja
+    $('fileCount').textContent = files.length;
+    $('fileLabel').textContent = files.length===1 ? files[0].name : `${files.length} file di-drop`;
+    toast(`${files.length} file di-drop.`,'info');
+  });
+</script>
 </body>
 </html>
