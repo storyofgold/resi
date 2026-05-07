@@ -42,47 +42,30 @@ function extractDate(t: string): string {
 }
 
 /**
- * extractWaybill — khusus J&T dan JNE berdasarkan struktur label nyata.
- *
- * Layout label J&T:
- *   - Baris besar (routing code): 350-SOG07A-06C  → BUKAN resi, ini kode sorting
- *   - Di bawah barcode: angka 10 digit            → INI nomor resi asli
- *   - Di pinggir vertikal: angka 10 digit berulang
- *
- * Layout label JNE:
- *   - Label eksplisit: "AWB: AKJNEX64MNX3G"
- *
- * Prioritas:
- * 1. Label eksplisit AWB / No Resi / Waybill
- * 2. Numeric 10 digit (J&T standar) — diambil yang paling sering muncul
- * 3. Numeric 12 digit (SiCepat/Anteraja)
- * 4. Prefiks ekspedisi JNE: CEK, JP, JD, SIPC, IDP, PAXEL
- * 5. Fallback: standalone numeric 8-20 digit
- *
- * Routing code J&T (XXX-YYYYY-ZZZ) sengaja TIDAK diambil sebagai waybill.
+ * extractWaybill — J&T nomor 10 digit (paling sering muncul), JNE via label AWB.
+ * Routing code J&T (XXX-YYYY-ZZ) diabaikan.
  */
 function extractWaybill(t: string): string {
-  // 1. Label eksplisit (JNE: "AWB: AKJNEX64MNX3G")
+  // 1. Label eksplisit AWB (JNE)
   const byLabel = t.match(
     /(?:No\.?\s*(?:Resi|Waybill|AWB)|AWB|Resi\s*No\.?|Waybill\s*No?\.?)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{5,30})/i
   );
   if (byLabel) return byLabel[1].toUpperCase().replace(/^[-]+|[-]+$/g, '');
 
-  // 2. Numeric 10 digit — paling sering muncul = waybill J&T
+  // 2. Numeric 10 digit — ambil yang paling sering muncul (waybill J&T berulang 6-8x)
   const all10 = [...t.matchAll(/\b(\d{10})\b/g)].map(m => m[1]);
   if (all10.length > 0) {
     const freq: Record<string, number> = {};
     for (const n of all10) freq[n] = (freq[n] || 0) + 1;
-    // Ambil yang paling sering (di label J&T muncul 3-6x di pinggir + bawah barcode)
     const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
     return sorted[0][0];
   }
 
-  // 3. Numeric 12 digit
+  // 3. Numeric 12 digit (SiCepat/Anteraja)
   const n12 = t.match(/\b(\d{12})\b/);
   if (n12) return n12[1];
 
-  // 4. Prefiks ekspedisi JNE / lainnya
+  // 4. Prefiks ekspedisi
   const prefix = t.match(/\b((?:CEK|JP|JD|SIPC|IDP|GKD|PAXEL)[A-Z0-9]{6,18})\b/i);
   if (prefix) return prefix[1].toUpperCase();
 
@@ -92,117 +75,78 @@ function extractWaybill(t: string): string {
     if (/^\d{8,20}$/.test(c)) return c;
   }
 
-  // 6. Fallback numeric 8-20 digit
+  // 6. Fallback
   const fb = t.match(/\b(\d{8,20})\b/);
   return fb ? fb[1] : '';
 }
 
+/**
+ * extractReceiver — ambil nama penerima, buang semua non-alfabet.
+ *
+ * Di label J&T format: "Penerima: VIAN ****7657"
+ * Kita hanya ambil bagian yang berupa huruf + spasi.
+ * Contoh: "VIAN ****7657" → "VIAN"
+ *         "RINA SUSILA ******1234" → "RINA SUSILA"
+ */
 function extractReceiver(t: string): string {
-  const m = t.match(/(?:Penerima|Kepada|Nama\s+Penerima|Receiver)\s*[:\-]?\s*([^\n\r]{3,60})/i);
-  return m ? norm(m[1]) : '';
+  const m = t.match(/(?:Penerima|Kepada|Nama\s+Penerima|Receiver)\s*[:\-]?\s*([^\n\r]{3,80})/i);
+  if (!m) return '';
+  // Hanya ambil kata-kata yang seluruh karakternya alfabet (A-Z, a-z, dan spasi antar kata)
+  const words = norm(m[1])
+    .split(/\s+/)
+    .filter(w => /^[A-Za-z]+$/.test(w));
+  return words.join(' ');
 }
 
 /**
- * extractKec — ekstrak Kecamatan dan Kabupaten/Kota dari alamat penerima J&T.
+ * extractKec — ambil Kota dan Kecamatan dari baris tepat di bawah "Penerima: NAMA".
  *
- * Format alamat penerima J&T SELALU:
- *   KOTA/KAB, KECAMATAN[-KODE_OPSIONAL], [detail alamat...]
+ * Struktur label J&T:
+ *   Penerima: VIAN ****7657          ← baris ini
+ *   CIPUTAT, PONDOK AREN, JL. ...   ← baris ini yang kita mau
  *
- * Contoh:
- *   "JAKARTA, JATINEGARA-JKT, JL. NILAM..." → Kec: JATINEGARA, Kab: JAKARTA
- *   "BEKASI, BANTAR GEBANG, JL. PANG..."    → Kec: BANTAR GEBANG, Kab: BEKASI
- *   "SOREANG, PASEH-SOG, SMP NEGRI..."      → Kec: PASEH, Kab: SOREANG
- *   "GARUT, TAROGONG KALER, PERUM..."       → Kec: TAROGONG KALER, Kab: GARUT
- *   "NGAMPRAH, SINDANGKERTA, JL..."         → Kec: SINDANGKERTA, Kab: NGAMPRAH
+ * Token[0] = Kota/Kab  → "CIPUTAT"
+ * Token[1] = Kecamatan → "PONDOK AREN" (strip suffix hub misal "-JKT")
  *
- * Strategi:
- * 1. Cari baris setelah "Penerima: NAMA" — baris berikutnya adalah alamat
- * 2. Parse format: TOKEN1, TOKEN2[-KODE], ...
- * 3. Token 1 = Kab/Kota, Token 2 (buang suffix -KODE) = Kecamatan
+ * Output: "PONDOK AREN - CIPUTAT"
  */
 function extractKec(t: string): string {
-  // Cari blok alamat penerima — di J&T letaknya tepat setelah baris "Penerima: NAMA ..."
-  // Format: "Penerima: NAMA  ******XXXX\nALAMAT, KECAMATAN[-KODE], ..."
-  const afterPenerima = t.match(
-    /Penerima\s*:\s*[^\n\r]+[\n\r]+\s*([A-Z][A-Z ,\.\-0-9\/\(\)]{10,})/i
-  );
+  // Cari baris "Penerima: ..." lalu ambil baris berikutnya yang berisi huruf kapital
+  const m = t.match(/Penerima\s*:\s*[^\n\r]+[\n\r]+\s*([A-Z][^\n\r]{5,})/i);
+  if (!m) return '';
 
-  let addrLine = '';
+  const addrLine = norm(m[1]);
 
-  if (afterPenerima) {
-    // Ambil beberapa baris setelah Penerima (alamat bisa multi-baris)
-    const startIdx = t.indexOf(afterPenerima[0]);
-    const afterBlock = t.slice(startIdx + afterPenerima[0].length - afterPenerima[1].length);
-    // Gabung baris-baris alamat sampai ketemu "Qty:" atau "Notes:" atau baris kosong ganda
-    const addrMatch = afterBlock.match(/^([A-Z ,\.\-0-9\/\(\)\n\r]{10,}?)(?=\s*(?:Qty|Notes|Ship|IDR|Sudah|Syarat|\*{3}))/is);
-    addrLine = addrMatch ? norm(addrMatch[1].replace(/[\n\r]+/g, ', ')) : norm(afterPenerima[1]);
-  }
+  // Split by koma
+  const parts = addrLine.split(',').map(s => norm(s)).filter(Boolean);
+  if (parts.length < 2) return parts[0] || '';
 
-  // Fallback: cari dari "Lembar Pengirim" section baris alamat di bagian bawah label
-  // (di PDF J&T bagian "Lembar Pengirim" juga punya alamat lengkap 1 baris)
-  if (!addrLine) {
-    const lembar = t.match(/Penerima:\s*[^\n\r]+[\n\r]+([A-Z][A-Z ,\.\-0-9\/\(\)]{15,})/i);
-    if (lembar) addrLine = norm(lembar[1]);
-  }
+  const kota = parts[0].trim();
+  // Strip kode hub setelah dash: "PONDOK AREN-JKT" → "PONDOK AREN"
+  const kec = parts[1].trim().replace(/-[A-Z]{2,5}$/, '').trim();
 
-  if (!addrLine) return '';
-
-  // Parse: "KOTA, KECAMATAN[-KODE], detail..."
-  // Split by comma
-  const parts = addrLine.split(',').map(s => norm(s));
-  if (parts.length < 2) return '';
-
-  const rawKab = parts[0].trim();
-  let rawKec = parts[1].trim();
-
-  // Buang suffix kode ekspedisi setelah dash: "JATINEGARA-JKT" → "JATINEGARA"
-  // Hanya strip jika suffix adalah huruf kapital 2-4 karakter (kode hub)
-  rawKec = rawKec.replace(/-[A-Z]{2,4}$/, '').trim();
-
-  // Hanya ambil maksimal 4 kata untuk kecamatan (cegah nama panjang nyasar)
-  const kec = rawKec.split(/\s+/).slice(0, 4).join(' ');
-  const kab = rawKab.split(/\s+/).slice(0, 4).join(' ');
-
-  if (!kec) return kab;
-  return `${kec} / ${kab}`;
+  if (!kec) return kota;
+  return `${kec} - ${kota}`;
 }
 
 /**
- * splitBlocks — pisahkan teks PDF menjadi blok per resi.
- *
- * Di J&T, setiap resi punya nomor 10-digit yang muncul BANYAK kali
- * (di pinggir kiri, kanan, bawah barcode, bagian Lembar Pengirim = 6-8x).
- *
- * Strategi:
- * 1. Cari semua nomor 10-digit yang muncul ≥ 3x (threshold lebih ketat)
- * 2. Urutkan berdasarkan posisi kemunculan pertama
- * 3. Split fullText di setiap batas
- *
- * Fallback: split per halaman PDF.
+ * splitBlocks — pisah teks PDF jadi blok per resi.
+ * J&T: nomor 10 digit muncul ≥3x per resi → pakai sebagai split point.
+ * JNE: split by posisi "AWB:".
+ * Fallback: per halaman.
  */
 function splitBlocks(fullText: string, pageTexts: string[]): string[] {
   const freq: Record<string, number> = {};
-
-  // Hitung frekuensi semua nomor 10-digit
   for (const m of fullText.matchAll(/\b(\d{10})\b/g)) {
     freq[m[1]] = (freq[m[1]] || 0) + 1;
   }
 
-  // Ambil nomor yang muncul ≥3x sebagai kandidat waybill
   const waybills = Object.entries(freq)
     .filter(([, c]) => c >= 3)
     .map(([k]) => k);
 
   if (waybills.length <= 1) {
-    // Coba fallback ke pola waybill lain (JNE, SiCepat, dll.)
-    const fallbackFreq: Record<string, number> = {};
-    for (const m of fullText.matchAll(/\b(\d{12})\b/g)) {
-      fallbackFreq[m[1]] = (fallbackFreq[m[1]] || 0) + 1;
-    }
-    for (const m of fullText.matchAll(/\b((?:CEK|JP|JD)[A-Z0-9]{6,18})\b/gi)) {
-      fallbackFreq[m[1].toUpperCase()] = (fallbackFreq[m[1].toUpperCase()] || 0) + 1;
-    }
-    // Untuk JNE: cari "AWB: KODE" sebagai batas blok
+    // Coba JNE: split by "AWB:"
     const jneSplits = [...fullText.matchAll(/AWB\s*:\s*([A-Z0-9]{8,30})/gi)].map(m => ({
       pos: m.index!,
       wb: m[1],
@@ -218,24 +162,22 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
       return blocks;
     }
 
-    const fbWaybills = Object.entries(fallbackFreq)
-      .filter(([, c]) => c >= 2)
-      .map(([k]) => k);
-
-    if (fbWaybills.length <= 1) {
-      return pageTexts.filter(p => p.trim().length > 20);
+    // Coba 12 digit
+    const freq12: Record<string, number> = {};
+    for (const m of fullText.matchAll(/\b(\d{12})\b/g)) {
+      freq12[m[1]] = (freq12[m[1]] || 0) + 1;
+    }
+    const wb12 = Object.entries(freq12).filter(([, c]) => c >= 2).map(([k]) => k);
+    if (wb12.length > 1) {
+      return buildBlocksFromPositions(
+        fullText,
+        wb12.map(wb => ({ pos: fullText.indexOf(wb), wb })).filter(x => x.pos !== -1).sort((a, b) => a.pos - b.pos)
+      );
     }
 
-    // Split by fallback waybills
-    const positions = fbWaybills
-      .map(wb => ({ pos: fullText.indexOf(wb), wb }))
-      .filter(x => x.pos !== -1)
-      .sort((a, b) => a.pos - b.pos);
-
-    return buildBlocksFromPositions(fullText, positions);
+    return pageTexts.filter(p => p.trim().length > 20);
   }
 
-  // Split berdasarkan posisi kemunculan pertama setiap waybill 10-digit
   const positions = waybills
     .map(wb => ({ pos: fullText.indexOf(wb), wb }))
     .filter(x => x.pos !== -1)
@@ -605,21 +547,13 @@ export default function App() {
             </div>
 
             <div style={S.card}>
-              <div style={{ fontSize: 12, fontWeight: 600, color:'rgba(255,255,255,.55)', marginBottom: 8 }}>Pola waybill dikenali</div>
+              <div style={{ fontSize: 12, fontWeight: 600, color:'rgba(255,255,255,.55)', marginBottom: 8 }}>Format hasil</div>
               <div style={{ fontSize: 12, color:'rgba(255,255,255,.50)', lineHeight: 1.8 }}>
-                <div>J&T — <span style={{ fontFamily:'monospace' }}>10 digit (1356884125)</span></div>
-                <div>JNE — <span style={{ fontFamily:'monospace' }}>AWB: AKJNEX64MNX3G</span></div>
-                <div>SiCepat — <span style={{ fontFamily:'monospace' }}>12 digit</span></div>
-                <div>Routing code J&T (<span style={{ fontFamily:'monospace' }}>350-SOG07A-06C</span>) diabaikan</div>
-              </div>
-            </div>
-
-            <div style={S.card}>
-              <div style={{ fontSize: 12, fontWeight: 600, color:'rgba(255,255,255,.55)', marginBottom: 6 }}>Format Kecamatan</div>
-              <div style={{ fontSize: 12, color:'rgba(255,255,255,.50)', lineHeight: 1.8 }}>
-                <div>Kecamatan / Kab-Kota</div>
-                <div style={{ fontFamily:'monospace', fontSize: 11 }}>JATINEGARA / JAKARTA</div>
-                <div style={{ fontFamily:'monospace', fontSize: 11 }}>TAROGONG KALER / GARUT</div>
+                <div><b>Nama:</b> hanya huruf alfabet</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>VIAN ****7657 → VIAN</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>RINA SUSILA ***8 → RINA SUSILA</div>
+                <div style={{ marginTop: 6 }}><b>Kecamatan:</b> baris setelah Penerima</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>CIPUTAT, PONDOK AREN → PONDOK AREN - CIPUTAT</div>
               </div>
             </div>
 
