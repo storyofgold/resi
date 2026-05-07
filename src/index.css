@@ -1,13 +1,106 @@
 @import "tailwindcss";
 
+:root {
+  --font-body: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', 'Fira Code', monospace;
+
+  /* Surfaces */
+  --color-bg: #0f1117;
+  --color-surface: #161b22;
+  --color-surface-2: #1c2230;
+  --color-border: rgba(255,255,255,0.08);
+  --color-border-strong: rgba(255,255,255,0.14);
+
+  /* Text */
+  --color-text: rgba(255,255,255,0.92);
+  --color-text-muted: rgba(255,255,255,0.50);
+  --color-text-faint: rgba(255,255,255,0.28);
+
+  /* Accent (teal) */
+  --color-primary: #01b8c2;
+  --color-primary-dim: rgba(1,184,194,0.15);
+  --color-primary-border: rgba(1,184,194,0.35);
+
+  /* Semantic */
+  --color-success: #22c55e;
+  --color-success-dim: rgba(34,197,94,0.15);
+  --color-warning: #f59e0b;
+  --color-warning-dim: rgba(245,158,11,0.12);
+  --color-error: #ef4444;
+  --color-error-dim: rgba(239,68,68,0.12);
+
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 20px;
+}
+
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html {
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  scroll-behavior: smooth;
+  scroll-padding-top: 80px;
 }
 
 body {
   min-height: 100dvh;
-  font-family: 'Inter', sans-serif;
+  font-family: var(--font-body);
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--color-text);
+  background-color: var(--color-bg);
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.25); }
+
+/* Focus ring */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
+}
+
+input, button, textarea, select { font: inherit; color: inherit; }
+img, svg { display: block; }
+button { cursor: pointer; }
+
+/* Mono */
+.mono { font-family: var(--font-mono); }
+
+/* Animate shimmer */
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+/* Progress bar pulse */
+@keyframes pulse-bar {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+/* Fade in */
+@keyframes fade-in {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.animate-fade-in {
+  animation: fade-in 0.2s ease forwards;
+}
+
+/* Table row hover */
+tr:hover td {
+  background: rgba(255,255,255,0.025);
+}
+
+[contenteditable]:focus {
+  outline: 1px solid var(--color-primary);
+  border-radius: 3px;
 }
