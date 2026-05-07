@@ -42,48 +42,57 @@ function extractDate(t: string): string {
 }
 
 /**
- * extractWaybill — prioritas:
- * 1. Pola JET Express: 3digit-HURUF+digit-digit+HURUF  mis. 350-SOG07A-06C
- * 2. Numeric 10 digit tepat (JET barcode bawah)
+ * extractWaybill — khusus J&T dan JNE berdasarkan struktur label nyata.
+ *
+ * Layout label J&T:
+ *   - Baris besar (routing code): 350-SOG07A-06C  → BUKAN resi, ini kode sorting
+ *   - Di bawah barcode: angka 10 digit            → INI nomor resi asli
+ *   - Di pinggir vertikal: angka 10 digit berulang
+ *
+ * Layout label JNE:
+ *   - Label eksplisit: "AWB: AKJNEX64MNX3G"
+ *
+ * Prioritas:
+ * 1. Label eksplisit AWB / No Resi / Waybill
+ * 2. Numeric 10 digit (J&T standar) — diambil yang paling sering muncul
  * 3. Numeric 12 digit (SiCepat/Anteraja)
- * 4. Prefiks ekspedisi: CEK, JP, JD, SIPC, IDP, PAXEL + digit
- * 5. Standalone numeric 8-20 digit di baris sendiri
- * 6. Fallback numeric 8-20 digit
+ * 4. Prefiks ekspedisi JNE: CEK, JP, JD, SIPC, IDP, PAXEL
+ * 5. Fallback: standalone numeric 8-20 digit
+ *
+ * Routing code J&T (XXX-YYYYY-ZZZ) sengaja TIDAK diambil sebagai waybill.
  */
 function extractWaybill(t: string): string {
-  // 1. Label eksplisit
+  // 1. Label eksplisit (JNE: "AWB: AKJNEX64MNX3G")
   const byLabel = t.match(
-    /(?:No\.?\s*(?:Resi|Waybill|AWB)|Resi\s*No\.?|Waybill\s*No\.?)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{5,24})/i
+    /(?:No\.?\s*(?:Resi|Waybill|AWB)|AWB|Resi\s*No\.?|Waybill\s*No?\.?)\s*[:\-]?\s*([A-Z0-9][A-Z0-9\-]{5,30})/i
   );
-  if (byLabel) return byLabel[1].toUpperCase();
+  if (byLabel) return byLabel[1].toUpperCase().replace(/^[-]+|[-]+$/g, '');
 
-  // 2. Pola JET Express: 350-SOG07A-06C
-  const jet = t.match(/\b(\d{3}-[A-Z]{2,4}\d{1,2}[A-Z]-\d{2}[A-Z])\b/);
-  if (jet) return jet[1].toUpperCase();
+  // 2. Numeric 10 digit — paling sering muncul = waybill J&T
+  const all10 = [...t.matchAll(/\b(\d{10})\b/g)].map(m => m[1]);
+  if (all10.length > 0) {
+    const freq: Record<string, number> = {};
+    for (const n of all10) freq[n] = (freq[n] || 0) + 1;
+    // Ambil yang paling sering (di label J&T muncul 3-6x di pinggir + bawah barcode)
+    const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
+    return sorted[0][0];
+  }
 
-  // 3. Generic dash pattern
-  const dash = t.match(/\b([A-Z]{2,4}\d{2,4}-[A-Z0-9]{4,8}-[A-Z0-9]{2,6})\b/);
-  if (dash) return dash[1].toUpperCase();
-
-  // 4. Prefiks ekspedisi
-  const prefix = t.match(/\b((?:CEK|JP|JD|SIPC|IDP|GKD|PAXEL)\d{6,18})\b/i);
-  if (prefix) return prefix[1].toUpperCase();
-
-  // 5. Numeric 10 digit
-  const n10 = t.match(/\b(\d{10})\b/);
-  if (n10) return n10[1];
-
-  // 6. Numeric 12 digit
+  // 3. Numeric 12 digit
   const n12 = t.match(/\b(\d{12})\b/);
   if (n12) return n12[1];
 
-  // 7. Standalone di baris sendiri
+  // 4. Prefiks ekspedisi JNE / lainnya
+  const prefix = t.match(/\b((?:CEK|JP|JD|SIPC|IDP|GKD|PAXEL)[A-Z0-9]{6,18})\b/i);
+  if (prefix) return prefix[1].toUpperCase();
+
+  // 5. Standalone numeric di baris sendiri
   for (const line of t.split(/[\n\r]+/)) {
     const c = norm(line);
     if (/^\d{8,20}$/.test(c)) return c;
   }
 
-  // 8. Fallback
+  // 6. Fallback numeric 8-20 digit
   const fb = t.match(/\b(\d{8,20})\b/);
   return fb ? fb[1] : '';
 }
@@ -93,62 +102,160 @@ function extractReceiver(t: string): string {
   return m ? norm(m[1]) : '';
 }
 
+/**
+ * extractKec — ekstrak Kecamatan dan Kabupaten/Kota dari alamat penerima J&T.
+ *
+ * Format alamat penerima J&T SELALU:
+ *   KOTA/KAB, KECAMATAN[-KODE_OPSIONAL], [detail alamat...]
+ *
+ * Contoh:
+ *   "JAKARTA, JATINEGARA-JKT, JL. NILAM..." → Kec: JATINEGARA, Kab: JAKARTA
+ *   "BEKASI, BANTAR GEBANG, JL. PANG..."    → Kec: BANTAR GEBANG, Kab: BEKASI
+ *   "SOREANG, PASEH-SOG, SMP NEGRI..."      → Kec: PASEH, Kab: SOREANG
+ *   "GARUT, TAROGONG KALER, PERUM..."       → Kec: TAROGONG KALER, Kab: GARUT
+ *   "NGAMPRAH, SINDANGKERTA, JL..."         → Kec: SINDANGKERTA, Kab: NGAMPRAH
+ *
+ * Strategi:
+ * 1. Cari baris setelah "Penerima: NAMA" — baris berikutnya adalah alamat
+ * 2. Parse format: TOKEN1, TOKEN2[-KODE], ...
+ * 3. Token 1 = Kab/Kota, Token 2 (buang suffix -KODE) = Kecamatan
+ */
 function extractKec(t: string): string {
-  const kec = (t.match(/\bKEC(?:AMATAN)?\.?\s*([A-Za-z0-9 \-]{3,40})/i) ?? [])[1] ?? '';
-  const kab = (t.match(/\b(?:KAB(?:UPATEN)?\.?|KOTA)\s*([A-Za-z0-9 \-]{3,40})/i) ?? [])[1] ?? '';
-  const trim = (x: string) => norm(x).split(/\s+/).slice(0, 3).join(' ');
-  return [kec ? 'KEC ' + trim(kec) : '', kab ? trim(kab) : ''].filter(Boolean).join(' / ');
+  // Cari blok alamat penerima — di J&T letaknya tepat setelah baris "Penerima: NAMA ..."
+  // Format: "Penerima: NAMA  ******XXXX\nALAMAT, KECAMATAN[-KODE], ..."
+  const afterPenerima = t.match(
+    /Penerima\s*:\s*[^\n\r]+[\n\r]+\s*([A-Z][A-Z ,\.\-0-9\/\(\)]{10,})/i
+  );
+
+  let addrLine = '';
+
+  if (afterPenerima) {
+    // Ambil beberapa baris setelah Penerima (alamat bisa multi-baris)
+    const startIdx = t.indexOf(afterPenerima[0]);
+    const afterBlock = t.slice(startIdx + afterPenerima[0].length - afterPenerima[1].length);
+    // Gabung baris-baris alamat sampai ketemu "Qty:" atau "Notes:" atau baris kosong ganda
+    const addrMatch = afterBlock.match(/^([A-Z ,\.\-0-9\/\(\)\n\r]{10,}?)(?=\s*(?:Qty|Notes|Ship|IDR|Sudah|Syarat|\*{3}))/is);
+    addrLine = addrMatch ? norm(addrMatch[1].replace(/[\n\r]+/g, ', ')) : norm(afterPenerima[1]);
+  }
+
+  // Fallback: cari dari "Lembar Pengirim" section baris alamat di bagian bawah label
+  // (di PDF J&T bagian "Lembar Pengirim" juga punya alamat lengkap 1 baris)
+  if (!addrLine) {
+    const lembar = t.match(/Penerima:\s*[^\n\r]+[\n\r]+([A-Z][A-Z ,\.\-0-9\/\(\)]{15,})/i);
+    if (lembar) addrLine = norm(lembar[1]);
+  }
+
+  if (!addrLine) return '';
+
+  // Parse: "KOTA, KECAMATAN[-KODE], detail..."
+  // Split by comma
+  const parts = addrLine.split(',').map(s => norm(s));
+  if (parts.length < 2) return '';
+
+  const rawKab = parts[0].trim();
+  let rawKec = parts[1].trim();
+
+  // Buang suffix kode ekspedisi setelah dash: "JATINEGARA-JKT" → "JATINEGARA"
+  // Hanya strip jika suffix adalah huruf kapital 2-4 karakter (kode hub)
+  rawKec = rawKec.replace(/-[A-Z]{2,4}$/, '').trim();
+
+  // Hanya ambil maksimal 4 kata untuk kecamatan (cegah nama panjang nyasar)
+  const kec = rawKec.split(/\s+/).slice(0, 4).join(' ');
+  const kab = rawKab.split(/\s+/).slice(0, 4).join(' ');
+
+  if (!kec) return kab;
+  return `${kec} / ${kab}`;
 }
 
 /**
  * splitBlocks — pisahkan teks PDF menjadi blok per resi.
- * Strategi: cari batas blok dari pola nomor resi yang berulang di teks
- * (di resi JET, nomor barcode muncul 2-3x dalam satu label).
- * Fallback: split per halaman.
+ *
+ * Di J&T, setiap resi punya nomor 10-digit yang muncul BANYAK kali
+ * (di pinggir kiri, kanan, bawah barcode, bagian Lembar Pengirim = 6-8x).
+ *
+ * Strategi:
+ * 1. Cari semua nomor 10-digit yang muncul ≥ 3x (threshold lebih ketat)
+ * 2. Urutkan berdasarkan posisi kemunculan pertama
+ * 3. Split fullText di setiap batas
+ *
+ * Fallback: split per halaman PDF.
  */
 function splitBlocks(fullText: string, pageTexts: string[]): string[] {
-  // Cari semua nomor kandidat waybill yang muncul ≥2x
-  const candidates: Record<string, number> = {};
-  const patterns = [
-    /\b(\d{3}-[A-Z]{2,4}\d{1,2}[A-Z]-\d{2}[A-Z])\b/g,
-    /\b(\d{10})\b/g,
-    /\b(\d{12})\b/g,
-    /\b((?:CEK|JP|JD|SIPC)\d{6,18})\b/gi,
-  ];
-  for (const pat of patterns) {
-    for (const m of fullText.matchAll(pat)) {
-      const k = m[1].toUpperCase();
-      candidates[k] = (candidates[k] || 0) + 1;
-    }
+  const freq: Record<string, number> = {};
+
+  // Hitung frekuensi semua nomor 10-digit
+  for (const m of fullText.matchAll(/\b(\d{10})\b/g)) {
+    freq[m[1]] = (freq[m[1]] || 0) + 1;
   }
 
-  // Nomor yang muncul ≥2x = kemungkinan nomor resi asli
-  const waybills = Object.entries(candidates)
-    .filter(([, c]) => c >= 2)
+  // Ambil nomor yang muncul ≥3x sebagai kandidat waybill
+  const waybills = Object.entries(freq)
+    .filter(([, c]) => c >= 3)
     .map(([k]) => k);
 
   if (waybills.length <= 1) {
-    // Tidak bisa split — kembalikan per halaman
-    return pageTexts.filter(p => p.trim().length > 20);
+    // Coba fallback ke pola waybill lain (JNE, SiCepat, dll.)
+    const fallbackFreq: Record<string, number> = {};
+    for (const m of fullText.matchAll(/\b(\d{12})\b/g)) {
+      fallbackFreq[m[1]] = (fallbackFreq[m[1]] || 0) + 1;
+    }
+    for (const m of fullText.matchAll(/\b((?:CEK|JP|JD)[A-Z0-9]{6,18})\b/gi)) {
+      fallbackFreq[m[1].toUpperCase()] = (fallbackFreq[m[1].toUpperCase()] || 0) + 1;
+    }
+    // Untuk JNE: cari "AWB: KODE" sebagai batas blok
+    const jneSplits = [...fullText.matchAll(/AWB\s*:\s*([A-Z0-9]{8,30})/gi)].map(m => ({
+      pos: m.index!,
+      wb: m[1],
+    }));
+    if (jneSplits.length > 1) {
+      jneSplits.sort((a, b) => a.pos - b.pos);
+      const blocks: string[] = [];
+      for (let i = 0; i < jneSplits.length; i++) {
+        const start = Math.max(0, jneSplits[i].pos - 200);
+        const end = i + 1 < jneSplits.length ? jneSplits[i + 1].pos : fullText.length;
+        blocks.push(fullText.slice(start, end));
+      }
+      return blocks;
+    }
+
+    const fbWaybills = Object.entries(fallbackFreq)
+      .filter(([, c]) => c >= 2)
+      .map(([k]) => k);
+
+    if (fbWaybills.length <= 1) {
+      return pageTexts.filter(p => p.trim().length > 20);
+    }
+
+    // Split by fallback waybills
+    const positions = fbWaybills
+      .map(wb => ({ pos: fullText.indexOf(wb), wb }))
+      .filter(x => x.pos !== -1)
+      .sort((a, b) => a.pos - b.pos);
+
+    return buildBlocksFromPositions(fullText, positions);
   }
 
-  // Split fullText berdasarkan posisi kemunculan pertama setiap waybill
-  const positions: { pos: number; wb: string }[] = [];
-  for (const wb of waybills) {
-    const idx = fullText.indexOf(wb);
-    if (idx !== -1) positions.push({ pos: idx, wb });
-  }
-  positions.sort((a, b) => a.pos - b.pos);
+  // Split berdasarkan posisi kemunculan pertama setiap waybill 10-digit
+  const positions = waybills
+    .map(wb => ({ pos: fullText.indexOf(wb), wb }))
+    .filter(x => x.pos !== -1)
+    .sort((a, b) => a.pos - b.pos);
 
+  return buildBlocksFromPositions(fullText, positions);
+}
+
+function buildBlocksFromPositions(
+  fullText: string,
+  positions: { pos: number; wb: string }[]
+): string[] {
+  if (positions.length === 0) return [fullText];
   const blocks: string[] = [];
   for (let i = 0; i < positions.length; i++) {
-    const start = positions[i].pos;
+    const start = Math.max(0, positions[i].pos - 100);
     const end = i + 1 < positions.length ? positions[i + 1].pos : fullText.length;
-    // Ambil sedikit konteks sebelum nomor (untuk Penerima dll yang mungkin ada di atas)
-    const contextStart = Math.max(0, start - 300);
-    blocks.push(fullText.slice(contextStart, end));
+    blocks.push(fullText.slice(start, end));
   }
-  return blocks.length > 0 ? blocks : pageTexts.filter(p => p.trim().length > 20);
+  return blocks;
 }
 
 function buildRow(text: string, label: string, idx: number): ResiRow {
@@ -185,9 +292,8 @@ async function parsePdfFile(file: File): Promise<ResiRow[]> {
     const rows: ResiRow[] = [];
     for (let i = 0; i < blocks.length; i++) {
       const row = buildRow(blocks[i], file.name, i);
-      // Hanya tambahkan jika waybill terdeteksi
       if (row.waybill) rows.push(row);
-      else if (blocks.length === 1) rows.push(row); // 1 blok tetap masuk meski kosong
+      else if (blocks.length === 1) rows.push(row);
     }
     return rows;
   } catch (err) {
@@ -200,14 +306,16 @@ function exportCSV(rows: ResiRow[]) {
   const hdr = ['No', 'Tanggal', 'No Waybill', 'Nama Penerima', 'Kecamatan', 'Biaya', 'COD', 'Keterangan'];
   const body = rows.map((r, i) =>
     [i + 1, r.tanggal, r.waybill, r.penerima, r.kecamatan, r.biaya, r.cod, r.keterangan]
-      .map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')
+      .map(v => `"${String(v).replace(/"/g, '""')}"`)
+      .join(',')
   );
   const csv = [hdr.join(','), ...body].join('\r\n');
   const a = Object.assign(document.createElement('a'), {
     href: URL.createObjectURL(new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8;' })),
     download: `resi_${todayISO()}.csv`,
   });
-  a.click(); URL.revokeObjectURL(a.href);
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 function copyTSV(rows: ResiRow[]) {
@@ -499,10 +607,19 @@ export default function App() {
             <div style={S.card}>
               <div style={{ fontSize: 12, fontWeight: 600, color:'rgba(255,255,255,.55)', marginBottom: 8 }}>Pola waybill dikenali</div>
               <div style={{ fontSize: 12, color:'rgba(255,255,255,.50)', lineHeight: 1.8 }}>
-                <div>JET — <span style={{ fontFamily:'monospace' }}>350-SOG07A-06C</span></div>
-                <div>JNE/J&T — <span style={{ fontFamily:'monospace' }}>CEK…, JP…</span></div>
-                <div>SiCepat — 12 digit</div>
-                <div>Generic — 10 digit standalone</div>
+                <div>J&T — <span style={{ fontFamily:'monospace' }}>10 digit (1356884125)</span></div>
+                <div>JNE — <span style={{ fontFamily:'monospace' }}>AWB: AKJNEX64MNX3G</span></div>
+                <div>SiCepat — <span style={{ fontFamily:'monospace' }}>12 digit</span></div>
+                <div>Routing code J&T (<span style={{ fontFamily:'monospace' }}>350-SOG07A-06C</span>) diabaikan</div>
+              </div>
+            </div>
+
+            <div style={S.card}>
+              <div style={{ fontSize: 12, fontWeight: 600, color:'rgba(255,255,255,.55)', marginBottom: 6 }}>Format Kecamatan</div>
+              <div style={{ fontSize: 12, color:'rgba(255,255,255,.50)', lineHeight: 1.8 }}>
+                <div>Kecamatan / Kab-Kota</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>JATINEGARA / JAKARTA</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>TAROGONG KALER / GARUT</div>
               </div>
             </div>
 
