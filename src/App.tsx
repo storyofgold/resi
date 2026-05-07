@@ -41,10 +41,6 @@ function extractDate(t: string): string {
   return m ? m[1].replace(/\//g, '-') : todayISO();
 }
 
-/**
- * extractWaybill — J&T nomor 10 digit (paling sering muncul), JNE via label AWB.
- * Routing code J&T (XXX-YYYY-ZZ) diabaikan.
- */
 function extractWaybill(t: string): string {
   // 1. Label eksplisit AWB (JNE)
   const byLabel = t.match(
@@ -61,7 +57,7 @@ function extractWaybill(t: string): string {
     return sorted[0][0];
   }
 
-  // 3. Numeric 12 digit (SiCepat/Anteraja)
+  // 3. Numeric 12 digit
   const n12 = t.match(/\b(\d{12})\b/);
   if (n12) return n12[1];
 
@@ -81,59 +77,45 @@ function extractWaybill(t: string): string {
 }
 
 /**
- * extractReceiver — ambil nama penerima, buang semua non-alfabet.
- *
- * Di label J&T format: "Penerima: VIAN ****7657"
- * Kita hanya ambil bagian yang berupa huruf + spasi.
- * Contoh: "VIAN ****7657" → "VIAN"
- *         "RINA SUSILA ******1234" → "RINA SUSILA"
+ * extractReceiver — hanya kata-kata alfabet dari baris Penerima.
+ * "VIAN ****7657" → "VIAN"
+ * "RINA SUSILA ****1234" → "RINA SUSILA"
  */
 function extractReceiver(t: string): string {
   const m = t.match(/(?:Penerima|Kepada|Nama\s+Penerima|Receiver)\s*[:\-]?\s*([^\n\r]{3,80})/i);
   if (!m) return '';
-  // Hanya ambil kata-kata yang seluruh karakternya alfabet (A-Z, a-z, dan spasi antar kata)
-  const words = norm(m[1])
+  return norm(m[1])
     .split(/\s+/)
-    .filter(w => /^[A-Za-z]+$/.test(w));
-  return words.join(' ');
+    .filter(w => /^[A-Za-z]+$/.test(w))
+    .join(' ');
 }
 
 /**
- * extractKec — ambil Kota dan Kecamatan dari baris tepat di bawah "Penerima: NAMA".
+ * extractKec — ambil baris tepat setelah "Penerima: NAMA",
+ * split by koma, ambil 2 token pertama.
  *
- * Struktur label J&T:
- *   Penerima: VIAN ****7657          ← baris ini
- *   CIPUTAT, PONDOK AREN, JL. ...   ← baris ini yang kita mau
+ * Contoh baris: "GARUT, TAROGONG KALER, JL. ..."
+ *   parts[0] = "GARUT"         → kota
+ *   parts[1] = "TAROGONG KALER" → kecamatan
+ *   output   = "TAROGONG KALER - GARUT"
  *
- * Token[0] = Kota/Kab  → "CIPUTAT"
- * Token[1] = Kecamatan → "PONDOK AREN" (strip suffix hub misal "-JKT")
- *
- * Output: "PONDOK AREN - CIPUTAT"
+ * Sesimpel itu.
  */
 function extractKec(t: string): string {
-  // Cari baris "Penerima: ..." lalu ambil baris berikutnya yang berisi huruf kapital
-  const m = t.match(/Penerima\s*:\s*[^\n\r]+[\n\r]+\s*([A-Z][^\n\r]{5,})/i);
+  const m = t.match(/Penerima\s*:\s*[^\n\r]+[\n\r]+\s*([^\n\r]{5,})/i);
   if (!m) return '';
 
-  const addrLine = norm(m[1]);
-
-  // Split by koma
-  const parts = addrLine.split(',').map(s => norm(s)).filter(Boolean);
+  const parts = m[1].split(',').map(s => norm(s)).filter(Boolean);
   if (parts.length < 2) return parts[0] || '';
 
-  const kota = parts[0].trim();
-  // Strip kode hub setelah dash: "PONDOK AREN-JKT" → "PONDOK AREN"
-  const kec = parts[1].trim().replace(/-[A-Z]{2,5}$/, '').trim();
+  const kota = parts[0];
+  const kec  = parts[1];
 
-  if (!kec) return kota;
   return `${kec} - ${kota}`;
 }
 
 /**
  * splitBlocks — pisah teks PDF jadi blok per resi.
- * J&T: nomor 10 digit muncul ≥3x per resi → pakai sebagai split point.
- * JNE: split by posisi "AWB:".
- * Fallback: per halaman.
  */
 function splitBlocks(fullText: string, pageTexts: string[]): string[] {
   const freq: Record<string, number> = {};
@@ -146,7 +128,6 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
     .map(([k]) => k);
 
   if (waybills.length <= 1) {
-    // Coba JNE: split by "AWB:"
     const jneSplits = [...fullText.matchAll(/AWB\s*:\s*([A-Z0-9]{8,30})/gi)].map(m => ({
       pos: m.index!,
       wb: m[1],
@@ -162,7 +143,6 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
       return blocks;
     }
 
-    // Coba 12 digit
     const freq12: Record<string, number> = {};
     for (const m of fullText.matchAll(/\b(\d{12})\b/g)) {
       freq12[m[1]] = (freq12[m[1]] || 0) + 1;
@@ -551,9 +531,9 @@ export default function App() {
               <div style={{ fontSize: 12, color:'rgba(255,255,255,.50)', lineHeight: 1.8 }}>
                 <div><b>Nama:</b> hanya huruf alfabet</div>
                 <div style={{ fontFamily:'monospace', fontSize: 11 }}>VIAN ****7657 → VIAN</div>
-                <div style={{ fontFamily:'monospace', fontSize: 11 }}>RINA SUSILA ***8 → RINA SUSILA</div>
-                <div style={{ marginTop: 6 }}><b>Kecamatan:</b> baris setelah Penerima</div>
-                <div style={{ fontFamily:'monospace', fontSize: 11 }}>CIPUTAT, PONDOK AREN → PONDOK AREN - CIPUTAT</div>
+                <div style={{ marginTop: 6 }}><b>Tujuan:</b> kecamatan - kota</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>GARUT, TAROGONG KALER, ...</div>
+                <div style={{ fontFamily:'monospace', fontSize: 11 }}>→ TAROGONG KALER - GARUT</div>
               </div>
             </div>
 
