@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react'
 import type { ResiRow } from './types'
 import { parsePdfFile, buildRow, isLibraryReady } from './lib/parser'
-import { exportCSV, copyTSV } from './lib/export'
+import { copyTSV } from './lib/export'
+import { exportXlsx } from './lib/exportXlsx'
 import { useToast } from './hooks/useToast'
 
 import Logo from './components/Logo'
@@ -119,10 +120,11 @@ export default function App() {
     toast('TSV berhasil disalin ke clipboard.', 'ok')
   }
 
-  const handleExportCSV = () => {
+  const handleExportXlsx = () => {
     if (!rows.length) { toast('Tidak ada data untuk diekspor.', 'warn'); return }
-    exportCSV(rows)
-    toast('File CSV sedang diunduh.', 'ok')
+    const label = rows[0]?.keterangan?.split(' #')[0].replace(/\.pdf$/i, '') ?? 'resi'
+    exportXlsx(rows, `${label}.xlsx`)
+    toast('File Excel sedang diunduh.', 'ok')
   }
 
   return (
@@ -153,9 +155,9 @@ export default function App() {
           </div>
           <div style={{ display: 'flex', gap: 8 }}>
             <button style={BTN_BASE} onClick={handleClear}>Hapus semua</button>
-            <button style={BTN_SUCCESS} onClick={handleExportCSV}>
+            <button style={BTN_SUCCESS} onClick={handleExportXlsx}>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-              Export CSV
+              Export Excel
             </button>
           </div>
         </div>
@@ -164,19 +166,13 @@ export default function App() {
       {/* Main */}
       <main style={{ maxWidth: 1280, margin: '0 auto', padding: '28px 20px', display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-        {/* Stats */}
         <StatsBar rows={rows} fileCount={files.length} libOk={libOk} />
 
-        {/* Two-column upload layout */}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 340px', gap: 16, alignItems: 'start' }}>
 
-          {/* Left: Upload */}
           <div style={PANEL}>
             <h2 style={{ fontSize: 14, fontWeight: 600, marginBottom: 16 }}>Upload PDF Resi</h2>
-
             <DropZone files={files} onFiles={handleFiles} disabled={parsing} />
-
-            {/* Controls */}
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginTop: 16, flexWrap: 'wrap', gap: 10 }}>
               <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, cursor: 'pointer', color: 'var(--color-text-muted)' }}>
                 <input
@@ -207,8 +203,6 @@ export default function App() {
                 )}
               </button>
             </div>
-
-            {/* Progress */}
             {parsing && (
               <div style={{ marginTop: 14 }}>
                 <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 6, fontSize: 12, color: 'var(--color-text-muted)' }}>
@@ -216,35 +210,22 @@ export default function App() {
                   <span>{progress}%</span>
                 </div>
                 <div style={{ height: 4, borderRadius: 2, background: 'rgba(255,255,255,0.08)', overflow: 'hidden' }}>
-                  <div
-                    style={{
-                      height: '100%',
-                      borderRadius: 2,
-                      background: 'var(--color-primary)',
-                      width: `${progress}%`,
-                      transition: 'width 0.3s ease',
-                    }}
-                  />
+                  <div style={{ height: '100%', borderRadius: 2, background: 'var(--color-primary)', width: `${progress}%`, transition: 'width 0.3s ease' }} />
                 </div>
               </div>
             )}
-
-            {/* Status (non-parsing) */}
             {!parsing && status !== 'Menunggu file…' && (
               <p style={{ marginTop: 12, fontSize: 12, color: 'var(--color-text-muted)' }}>{status}</p>
             )}
           </div>
 
-          {/* Right: OCR input */}
           <div style={PANEL}>
             <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 }}>
               <div>
                 <h2 style={{ fontSize: 14, fontWeight: 600 }}>Teks OCR</h2>
                 <p style={{ fontSize: 12, color: 'var(--color-text-muted)', marginTop: 2 }}>Paste teks dari PDF scan</p>
               </div>
-              <button style={BTN_BASE} onClick={handleParseText} disabled={!ocrText.trim()}>
-                Parse
-              </button>
+              <button style={BTN_BASE} onClick={handleParseText} disabled={!ocrText.trim()}>Parse</button>
             </div>
             <textarea
               value={ocrText}
@@ -271,7 +252,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Results */}
         <div id="hasil" style={PANEL}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16, flexWrap: 'wrap', gap: 12 }}>
             <div>
@@ -282,41 +262,26 @@ export default function App() {
             </div>
             <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
               <div style={{ position: 'relative' }}>
-                <svg
-                  width="14" height="14"
-                  viewBox="0 0 24 24" fill="none" stroke="var(--color-text-faint)" strokeWidth="2"
-                  style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}
-                >
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--color-text-faint)" strokeWidth="2" style={{ position: 'absolute', left: 10, top: '50%', transform: 'translateY(-50%)', pointerEvents: 'none' }}>
                   <circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/>
                 </svg>
                 <input
                   placeholder="Cari resi…"
                   value={search}
                   onChange={e => setSearch(e.target.value)}
-                  style={{
-                    background: 'var(--color-bg)',
-                    border: '1px solid var(--color-border)',
-                    borderRadius: 'var(--radius-md)',
-                    padding: '7px 12px 7px 32px',
-                    color: 'var(--color-text)',
-                    fontSize: 13,
-                    outline: 'none',
-                    width: 200,
-                    transition: 'border-color 0.15s',
-                  }}
+                  style={{ background: 'var(--color-bg)', border: '1px solid var(--color-border)', borderRadius: 'var(--radius-md)', padding: '7px 12px 7px 32px', color: 'var(--color-text)', fontSize: 13, outline: 'none', width: 200, transition: 'border-color 0.15s' }}
                 />
               </div>
               <button style={BTN_BASE} onClick={handleCopyTSV}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect width="14" height="14" x="8" y="8" rx="2"/><path d="M4 16c-1.1 0-2-.9-2-2V4c0-1.1.9-2 2-2h10c1.1 0 2 .9 2 2"/></svg>
                 Copy TSV
               </button>
-              <button style={BTN_SUCCESS} onClick={handleExportCSV}>
+              <button style={BTN_SUCCESS} onClick={handleExportXlsx}>
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4M7 10l5 5 5-5M12 15V3"/></svg>
-                Export CSV
+                Export Excel
               </button>
             </div>
           </div>
-
           <ResultTable rows={rows} search={search} />
         </div>
 
@@ -325,9 +290,7 @@ export default function App() {
         </p>
       </main>
 
-      {/* Spin animation for loading icon */}
       <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-
       <Toast toasts={toasts} onDismiss={dismiss} />
     </div>
   )

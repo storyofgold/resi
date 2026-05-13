@@ -92,16 +92,11 @@ function extractWaybill(t: string, exp: Expedition): string {
   }
 }
 
-// ── Receiver JNT ───────────────────────────────────────────────────────────────
 function extractReceiverJNT(t: string): string {
-  // Prioritas: cari "Penerima: NAMA" di baris yang TIDAK diikuti alamat (tidak ada koma banyak)
-  // Biasanya baris ini pendek: "Penerima: KOIIRIA" atau "Penerima: KOIIRIA ******4032"
-  const lines = t.split('\n')
-  for (const line of lines) {
+  for (const line of t.split('\n')) {
     const m = line.match(/Penerima\s*:\s*(.+)/)
     if (!m) continue
     let name = m[1].trim()
-    // Hapus HP / mask di akhir
     name = name.replace(/\s*,?\s*(?:\*+\d+|\d[\d*]{7,})\s*$/, '')
     name = norm(name)
     if (name.length >= 2) return name
@@ -140,7 +135,6 @@ function extractReceiver(t: string, exp: Expedition): string {
   }
 }
 
-// ── Kecamatan JNT ─────────────────────────────────────────────────────────────
 function parseKecamatanJNT(alamat: string): string {
   const clean = norm(alamat)
   const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
@@ -159,19 +153,6 @@ function parseKecamatanJNT(alamat: string): string {
   return clean
 }
 
-/**
- * Ekstrak alamat penerima JNT.
- *
- * POLA A: alamat mepet di baris yang sama setelah nama+HP
- *   "Penerima: MBA OPY******0033BEKASI, BEKASI BARAT, JL..."
- *
- * POLA B: baris berikutnya setelah Penerima (format baru MATAHARI CITOS)
- *   "Penerima: KOIIRIA ******4032"
- *   "JAKARTA, KEMAYORAN, JL SUKAMULYA 3 ..."
- *   (baris alamat bisa berupa teks biasa atau ALL CAPS)
- *
- * POLA C: alamat ALL CAPS terpisah di halaman (tidak setelah Penerima)
- */
 function findPenerimaAddressJNT(pageText: string): string {
   const lines = pageText.split('\n')
 
@@ -179,33 +160,23 @@ function findPenerimaAddressJNT(pageText: string): string {
     const line = lines[i]
     if (!/Penerima\s*:/i.test(line)) continue
 
-    // POLA A: sisa teks di baris sama setelah nama+HP
     const inlineAddr = line
       .replace(/Penerima\s*:\s*/i, '')
       .replace(/^.+?(?:\*+\d+|\d[\d*]{7,})\s*/, '')
       .trim()
-    if (inlineAddr.length > 5 && /,/.test(inlineAddr)) {
-      return inlineAddr
-    }
+    if (inlineAddr.length > 5 && /,/.test(inlineAddr)) return inlineAddr
 
-    // POLA B: kumpulkan baris setelah Penerima sampai ketemu stop-word
     const addrLines: string[] = []
     for (let j = i + 1; j < Math.min(i + 8, lines.length); j++) {
       const nl = lines[j].trim()
-      // Stop: pengirim, label section, footer PT/LANDMARK, angka murni, mask
       if (/^(Pengirim\s*:|BIAYA|Notes\s*:|Syarat|Order|PT\.|LANDMARK|Sudah Termasuk|TOTAL BIAYA|Qty)/i.test(nl)) break
       if (/^(COD|DFOD|NP|EZ|BULANAN)$/i.test(nl)) break
-      if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl)) continue
-      // Baris dengan nomor 10 digit standalone = waybill, skip
-      if (/^\d{10}$/.test(nl)) continue
+      if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl) || /^\d{10}$/.test(nl)) continue
       if (nl.length > 3) addrLines.push(nl)
     }
-    if (addrLines.length > 0 && /,/.test(addrLines.join(' '))) {
-      return addrLines.join(' ')
-    }
+    if (addrLines.length > 0 && /,/.test(addrLines.join(' '))) return addrLines.join(' ')
   }
 
-  // POLA C: scan ALL CAPS block dengan >=2 koma (bukan footer)
   const candidates: string[] = []
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
@@ -220,8 +191,7 @@ function findPenerimaAddressJNT(pageText: string): string {
       const block = [line]
       for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         const nl = lines[j].trim()
-        if (
-          nl && nl === nl.toUpperCase() && /[A-Z]{3,}/.test(nl) &&
+        if (nl && nl === nl.toUpperCase() && /[A-Z]{3,}/.test(nl) &&
           !/^\d+$/.test(nl) &&
           !/^(LANDMARK|PT\s|COD|NP|EZ|DFOD|BULANAN|BIAYA)/i.test(nl)
         ) {
@@ -232,13 +202,11 @@ function findPenerimaAddressJNT(pageText: string): string {
       if ((full.match(/,/g) ?? []).length >= 2) candidates.push(full)
     }
   }
-  if (candidates.length > 0) {
+  if (candidates.length > 0)
     return candidates.reduce((a, b) => b.split(',').length > a.split(',').length ? b : a)
-  }
   return ''
 }
 
-// ── Kecamatan JNE ─────────────────────────────────────────────────────────────
 function parseKecamatanJNE(alamatFull: string): string {
   const clean = alamatFull.replace(/\s+/g, ' ').trim()
   const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
@@ -266,7 +234,6 @@ function extractKecJNE(t: string): string {
   return ''
 }
 
-// ── Kecamatan iD/SAP ──────────────────────────────────────────────────────────
 function extractKecIDESAP(t: string): string {
   const lines = t.split('\n')
   const addrParts: string[] = []
@@ -274,15 +241,9 @@ function extractKecIDESAP(t: string): string {
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     const startM = line.match(/Nomor Telepon:\s*.+?\s+Alamat:\s*(.+)/i)
-    if (startM) {
-      addrParts.push(startM[1].trim())
-      collecting = true
-      continue
-    }
+    if (startM) { addrParts.push(startM[1].trim()); collecting = true; continue }
     if (collecting) {
-      if (/^\d{5}$/.test(line.trim()) || /^Nama Produk/i.test(line.trim())) {
-        collecting = false; continue
-      }
+      if (/^\d{5}$/.test(line.trim()) || /^Nama Produk/i.test(line.trim())) { collecting = false; continue }
       const alamatM = line.match(/^Alamat:\s*(.+)/i)
       if (alamatM) {
         const split2 = alamatM[1].match(/^(.+?-\s*\d{5})\s+(.+)/)
@@ -292,9 +253,7 @@ function extractKecIDESAP(t: string): string {
       const kotaM = line.match(/^(.+?-\s*\d{5})\s+(.+)/)
       if (kotaM) { addrParts.push(kotaM[2].trim()); continue }
       const nl = line.trim()
-      if (nl && !/^(Nomor|Alamat|Nama|PICKUP|NON COD|[A-Z]{2,5}\d{4})/i.test(nl)) {
-        addrParts.push(nl)
-      }
+      if (nl && !/^(Nomor|Alamat|Nama|PICKUP|NON COD|[A-Z]{2,5}\d{4})/i.test(nl)) addrParts.push(nl)
     }
   }
   if (addrParts.length > 0) {
@@ -363,15 +322,10 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
   if (joPos.length > 1) return buildBlocksFromPositions(fullText, joPos)
 
   const freq10: Record<string, number> = {}
-  for (const m of fullText.matchAll(/\b(\d{10})\b/g)) {
-    freq10[m[1]] = (freq10[m[1]] || 0) + 1
-  }
+  for (const m of fullText.matchAll(/\b(\d{10})\b/g)) freq10[m[1]] = (freq10[m[1]] || 0) + 1
   const wb10 = Object.entries(freq10).filter(([, c]) => c >= 2).map(([k]) => k)
   if (wb10.length > 1) {
-    const pos = wb10
-      .map(wb => ({ pos: fullText.indexOf(wb) }))
-      .filter(x => x.pos !== -1)
-      .sort((a, b) => a.pos - b.pos)
+    const pos = wb10.map(wb => ({ pos: fullText.indexOf(wb) })).filter(x => x.pos !== -1).sort((a, b) => a.pos - b.pos)
     return buildBlocksFromPositions(fullText, pos)
   }
 
@@ -384,6 +338,7 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
 export function buildRow(text: string, label: string, idx: number): ResiRow {
   const exp = detectExpedition(text)
   const biaya = extractBiaya(text, exp)
+  const cod = isCOD(text) ? biaya : 0
   return {
     _id: Math.random().toString(36).slice(2, 9),
     tanggal: extractDate(text),
@@ -391,7 +346,7 @@ export function buildRow(text: string, label: string, idx: number): ResiRow {
     penerima: extractReceiver(text, exp),
     kecamatan: extractKec(text, exp),
     biaya,
-    cod: isCOD(text) ? 'Ya' : 'Tidak',
+    cod,
     keterangan: label + (idx > 0 ? ` #${idx + 1}` : ''),
   }
 }
@@ -419,11 +374,7 @@ export async function parsePdfFile(file: File): Promise<ResiRow[]> {
 
   for (let i = 0; i < blocks.length; i++) {
     const block = blocks[i]
-
-    // Skip blok yang HANYA lembar pengirim (tidak ada Penerima: di dalamnya)
-    // PDF seperti MATAHARI CITOS punya keduanya dalam 1 halaman, jadi tidak di-skip
     if (/Lembar Pengirim/i.test(block) && !/Penerima\s*:/i.test(block)) continue
-
     const row = buildRow(block, file.name, i)
     if (!row.waybill) {
       if (blocks.length === 1) rows.push(row)

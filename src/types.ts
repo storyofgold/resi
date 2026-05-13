@@ -5,7 +5,7 @@ export interface ResiRow {
   penerima: string
   kecamatan: string
   biaya: number
-  cod: 'Ya' | 'Tidak'
+  cod: number
   keterangan: string
 }
 
