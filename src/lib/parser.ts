@@ -37,24 +37,18 @@ export function formatIDR(n: number): string {
 type Expedition = 'JNE' | 'JNT' | 'IDE' | 'SAP' | 'UNKNOWN'
 
 function detectExpedition(t: string): Expedition {
-  // JNE: harus ada AKJNE di nomor AWB
   if (/\bAKJNE[A-Z0-9]+\b/.test(t) || /AWB\s*:\s*AKJNE/i.test(t)) return 'JNE'
-  // JNT: ciri khas domain/nama perusahaan
   if (/PT\.?\s*GLOBAL JET EXPRESS/i.test(t) || /www\.jet\.co\.id/i.test(t)) return 'JNT'
-  // IDE / SAP: deteksi dari prefix nomor resi
   if (/No\.\s*Resi\s*:\s*IDE[0-9]/i.test(t)) return 'IDE'
   if (/No\.\s*Resi\s*:\s*BLO[0-9]/i.test(t)) return 'SAP'
-  // Generic iD/SAP: ada "No. Resi:" dan "Nomor Telepon:"
   if (/No\.\s*Resi\s*:/i.test(t) && /Nomor Telepon/i.test(t)) return 'IDE'
   return 'UNKNOWN'
 }
 
 // ── Date ───────────────────────────────────────────────────────────────────────
 function extractDate(t: string): string {
-  // iD/SAP: No. Order: TRD20260512XXXXXX
   const trd = t.match(/TRD(\d{4})(\d{2})(\d{2})\d+/)
   if (trd) return `${trd[3]}-${trd[2]}-${trd[1]}`
-  // JNE: YYYY-MM-DD
   const iso = t.match(/(\d{4})-(\d{2})-(\d{2})/)
   if (iso) return `${iso[3]}-${iso[2]}-${iso[1]}`
   // JNT: Cetak / Ship / Tgl Dibuat: DD-MM-YYYY
@@ -70,23 +64,25 @@ function extractWaybillJNE(t: string): string {
 }
 
 /**
- * JNT waybill — port dari resi-rare-2.py:
- * voting: 10-digit atau alphanumeric JO/AK/JD/JP, ambil yang paling sering muncul
+ * JNT waybill:
+ * - J&T baru: JO + 10 digit (JO0323905055)
+ * - J&T lama: voting angka 10 digit terbanyak muncul (1357207478 muncul 8x)
+ * - Juga cek prefix alphanumeric: AK, JD, JP
  */
 function extractWaybillJNT(t: string): string {
   // J&T baru: JO + 10 digit
   const jo = t.match(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/)
   if (jo) return jo[1]
 
-  // Voting: kumpulkan semua 10-digit + alphanumeric, ambil max
+  // Voting: 10-digit + alphanumeric prefix
   const counter: Record<string, number> = {}
   for (const m of t.matchAll(/\b(\d{10})\b/g)) {
     counter[m[1]] = (counter[m[1]] || 0) + 1
   }
-  for (const m of t.matchAll(/\b((?:JO|AK|JD|JP)\w{6,})\b/g)) {
+  for (const m of t.matchAll(/\b((?:AK|JD|JP)\w{6,})\b/g)) {
     counter[m[1]] = (counter[m[1]] || 0) + 1
   }
-  if (Object.keys(counter).length === 0) return ''
+  if (!Object.keys(counter).length) return ''
   return Object.entries(counter).sort((a, b) => b[1] - a[1])[0][0]
 }
 
@@ -110,26 +106,30 @@ function extractWaybill(t: string, exp: Expedition): string {
   }
 }
 
-// ── Receiver ───────────────────────────────────────────────────────────────────
-
+// ── Receiver JNT ───────────────────────────────────────────────────────────────
 /**
- * JNT receiver — port dari resi.py / resi-rare-2.py:
- * "Penerima: NAMA  ***08xxx" atau "Penerima: NAMA  0812xxxx"
+ * Format yang ditemukan di 4 PDF:
+ *   "Penerima: MBA OPY******0033"           → nama: MBA OPY
+ *   "Penerima: EMMA WAHYUNI"               → nama: EMMA WAHYUNI  (tanpa HP di baris ini)
+ *   "Penerima : Ratna Nuraeni, 0857265*****" → nama: Ratna Nuraeni
+ *
+ * Logika: ambil teks setelah "Penerima:" lalu strip HP/mask di akhir
  */
 function extractReceiverJNT(t: string): string {
   for (const line of t.split('\n')) {
-    // Format lama: Penerima: NAMA ***1234
-    const m1 = line.match(/Penerima\s*:\s*(.+?)\s+\*+\d+/)
-    if (m1) return norm(m1[1])
-    // Format baru: Penerima: NAMA  081234... (tanpa ***)
-    const m2 = line.match(/Penerima\s*:\s*(.+?)\s*(?:,\s*)?\d[\d*]{6,}[\d*]+$/)
-    if (m2) return norm(m2[1]).replace(/,\s*$/, '')
+    const m = line.match(/Penerima\s*:\s*(.+)/)
+    if (!m) continue
+    let name = m[1].trim()
+    // Hapus HP / mask di akhir: "081xxx", "***1234", "0857265*****"
+    name = name.replace(/\s*,?\s*(?:\*+\d+|\d[\d*]{7,})\s*$/, '')
+    name = norm(name)
+    if (name.length >= 2) return name
   }
   return ''
 }
 
+// ── Receiver JNE ───────────────────────────────────────────────────────────────
 function extractReceiverJNE(t: string): string {
-  // "Nama: Penerima  Nama: Pengirim" — split by "Nama:"
   for (const line of t.split('\n')) {
     const parts = line.split(/Nama:\s*/).map(s => s.trim()).filter(Boolean)
     if (parts.length >= 2) return parts[0]
@@ -138,6 +138,7 @@ function extractReceiverJNE(t: string): string {
   return m ? norm(m[1]) : ''
 }
 
+// ── Receiver iD/SAP ────────────────────────────────────────────────────────────
 function extractReceiverIDESAP(t: string): string {
   for (const line of t.split('\n')) {
     const m = line.match(/Nama:\s*(.+?)\s+Nama:\s*(.+)/)
@@ -161,99 +162,127 @@ function extractReceiver(t: string, exp: Expedition): string {
 }
 
 // ── Kecamatan JNT ─────────────────────────────────────────────────────────────
-
 /**
- * parse_kecamatan — port dari resi-rare-2.py:
- * Ambil 2 bagian ALL CAPS terakhir dari alamat (caps_parts[-2], caps_parts[-1]).
- * Fallback: parts[-2], parts[-1].
+ * Dari 4 PDF nyata, alamat penerima JNT punya struktur:
+ *   "BEKASI, BEKASI BARAT, JL TAHIR NO 59 RT03/11 KRANJI, BEKASI BARAT KOTA BEKASI 17135"
+ *   "KEDIRI, KEDIRI KOTA, JL. MAYOR BISMONO NO. 265 ..."
+ *   "KEPANJEN, SUMBERMANJING WETAN, JL. MULYOSARI RT.031 ..."
+ *   "Dk.Pendem RT.02 RW.05 ..., AMPEL, KABUPATEN BOYOLALI"
+ *
+ * Kecamatan = 2 token ALL CAPS pertama (untuk format KOTA, KECAMATAN, jl...)
+ * Untuk format mixed-case dengan CAPS di akhir → tetap ambil 2 CAPS pertama
  */
-function parseKecamatanJNT(alamatFull: string): string {
-  const clean = alamatFull.replace(/\s+/g, ' ').trim()
+function parseKecamatanJNT(alamat: string): string {
+  const clean = norm(alamat)
   const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
-  // Filter ALL CAPS dan bermakna (>2 char, ada huruf >=3 berturutan)
+
+  // Filter parts yang ALL CAPS dan bermakna
   const capsParts = parts.filter(p =>
     p === p.toUpperCase() && /[A-Z]{3,}/.test(p) && p.length > 2
   )
+
+  // Dari pola PDF: KOTA selalu di posisi pertama atau kedua
+  // ambil 2 CAPS pertama (bukan terakhir)
   if (capsParts.length >= 2) {
-    return `${capsParts[capsParts.length - 2]}, ${capsParts[capsParts.length - 1]}`
+    return `${capsParts[0]}, ${capsParts[1]}`
   }
-  if (capsParts.length === 1) return capsParts[capsParts.length - 1]
-  // Fallback: 2 terakhir
-  if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
+  if (capsParts.length === 1) return capsParts[0]
+
+  // Fallback: 2 parts pertama yang bukan jalan/RT/RW
+  const meaningful = parts.filter(p =>
+    !/^(JL|Jl|RT|RW|NO|GG|GANG|BLOK|Gg|Kec|Kel|Kab|Dk|Desa)\b/i.test(p.trim()) &&
+    p.trim().length > 2
+  )
+  if (meaningful.length >= 2) return `${meaningful[0]}, ${meaningful[1]}`
+  if (meaningful.length === 1) return meaningful[0]
+  if (parts.length >= 2) return `${parts[0]}, ${parts[1]}`
   return clean
 }
 
 /**
- * find_penerima_address — port dari resi-rare-2.py:
+ * Ekstrak alamat penerima dari blok teks JNT.
  *
- * Prioritas 1: baris setelah "Penerima:" — stop di Pengirim/BIAYA/Notes/Syarat/Order/COD/DFOD/NP/EZ
- *   - Skip baris yang pure digit atau pure *+digit
+ * Dari PDF nyata, ada 2 pola:
  *
- * Fallback (resi-v2-3.py): scan semua baris ALL CAPS, cari blok berturutan,
- *   kumpulkan yang punya >=2 koma, ambil yang paling banyak koma
+ * POLA A (JNT-2, JNT-3): alamat langsung mepet setelah nama+mask di baris sama
+ *   "Penerima: MBA OPY******0033BEKASI, BEKASI BARAT, JL TAHIR..."
+ *   → setelah strip nama+HP, sisa baris = alamat
+ *
+ * POLA B (JNT-4): alamat di baris berikutnya setelah "Penerima : Nama, hp"
+ *   "Penerima : Ratna Nuraeni, 0857265*****"
+ *   "Dk.Pendem RT.02 ... , AMPEL, KABUPATEN BOYOLALI"
+ *
+ * POLA C (JNT-1): alamat ALL CAPS terpisah di tempat lain di halaman
+ *   "KEPANJEN, SUMBERMANJING WETAN, JL.MULYOSARI RT.031 RW.009..."
  */
-function findPenerimaAddress(pageText: string): string {
+function findPenerimaAddressJNT(pageText: string): string {
   const lines = pageText.split('\n')
 
-  // ── Prioritas 1: baris setelah "Penerima:" ──
   for (let i = 0; i < lines.length; i++) {
-    if (/^Penerima\s*:/i.test(lines[i].trim())) {
-      const addrLines: string[] = []
-      for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
-        const nl = lines[j].trim()
-        if (/^(Pengirim\s*:|BIAYA|Notes|Syarat|Order|^(COD|DFOD|NP|EZ)$)/i.test(nl)) break
-        if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl)) continue
-        if (nl) addrLines.push(nl)
-      }
-      if (addrLines.length > 0) return addrLines.join(' ')
+    const line = lines[i]
+    if (!/Penerima\s*:/i.test(line)) continue
+
+    // POLA A: cek sisa teks di baris yang sama setelah nama+HP/mask
+    // strip "Penerima: NAMA ******hp" atau "Penerima: NAMA 081xxx" lalu ambil sisanya
+    const inlineAddr = line.replace(/Penerima\s*:\s*/i, '')
+      .replace(/^.+?(?:\*+\d+|\d[\d*]{7,})\s*/, '')  // buang nama + HP/mask
+      .trim()
+    if (inlineAddr.length > 5 && /,/.test(inlineAddr)) {
+      return inlineAddr
+    }
+
+    // POLA B: baris berikutnya = alamat
+    const addrLines: string[] = []
+    for (let j = i + 1; j < Math.min(i + 6, lines.length); j++) {
+      const nl = lines[j].trim()
+      if (/^(Pengirim\s*:|BIAYA|Notes|Syarat|Order|Lembar|PT\.|LANDMARK)/i.test(nl)) break
+      if (/^(COD|DFOD|NP|EZ|BULANAN)$/i.test(nl)) break
+      if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl)) continue
+      if (nl.length > 3) addrLines.push(nl)
+    }
+    if (addrLines.length > 0 && /,/.test(addrLines.join(' '))) {
+      return addrLines.join(' ')
     }
   }
 
-  // ── Fallback: ALL CAPS block dengan >=2 koma ──
+  // POLA C: scan seluruh halaman cari baris ALL CAPS dengan >=2 koma
+  // (bukan footer perusahaan / landmark)
   const candidates: string[] = []
-  let i = 0
-  while (i < lines.length) {
+  for (let i = 0; i < lines.length; i++) {
     const line = lines[i].trim()
     if (
-      line &&
+      line.length > 8 &&
       line === line.toUpperCase() &&
       line.includes(',') &&
       /[A-Z]{3,}/.test(line) &&
-      line.length > 8 &&
       !/^\d+$/.test(line) &&
-      !/^\*+\d+$/.test(line) &&
-      !/^(LANDMARK|PT |JAKARTA UTARA|DKI JAKARTA)/.test(line)
+      !/^(LANDMARK|PT\s|JAKARTA UTARA|DKI JAKARTA|PLUIT)/i.test(line)
     ) {
+      // Gabung baris CAPS berturutan
       const block = [line]
-      let j = i + 1
-      while (j < Math.min(i + 6, lines.length)) {
+      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
         const nl = lines[j].trim()
         if (
-          nl &&
-          nl === nl.toUpperCase() &&
-          /[A-Z]{3,}/.test(nl) &&
+          nl && nl === nl.toUpperCase() && /[A-Z]{3,}/.test(nl) &&
           !/^\d+$/.test(nl) &&
-          !/^(Syarat|PT |LANDMARK|COD$|NP$|EZ$|DFOD$|BULANAN$)/i.test(nl)
+          !/^(LANDMARK|PT\s|COD|NP|EZ|DFOD|BULANAN|BIAYA)/i.test(nl)
         ) {
           block.push(nl)
-          j++
         } else break
       }
       const full = block.join(' ')
       if ((full.match(/,/g) ?? []).length >= 2) candidates.push(full)
     }
-    i++
   }
 
   if (candidates.length > 0) {
-    // Ambil yang paling banyak koma (paling detail)
     return candidates.reduce((a, b) => b.split(',').length > a.split(',').length ? b : a)
   }
+
   return ''
 }
 
 // ── Kecamatan JNE ─────────────────────────────────────────────────────────────
-// port dari resi-jne-2.py: parse_kecamatan_jne
 function parseKecamatanJNE(alamatFull: string): string {
   const clean = alamatFull.replace(/\s+/g, ' ').trim()
   const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
@@ -267,11 +296,9 @@ function parseKecamatanJNE(alamatFull: string): string {
 function extractKecJNE(t: string): string {
   const lines = t.split('\n')
   for (let i = 0; i < lines.length; i++) {
-    // "Penerima: NAMA, ALAMAT..."
     const m = lines[i].match(/^Penerima\s*:\s*.+?,\s*(.+)/)
     if (m) {
       let raw = m[1]
-      // Gabung baris lanjutan
       for (let j = i + 1; j < Math.min(i + 5, lines.length); j++) {
         const nl = lines[j].trim()
         if (/^(Pengirim:|JNE|Asuransi|Harap|$)/i.test(nl)) break
@@ -284,7 +311,6 @@ function extractKecJNE(t: string): string {
 }
 
 // ── Kecamatan iD/SAP ──────────────────────────────────────────────────────────
-// port dari resi-sap-id-5.py: parse_kecamatan_id_sap + state machine extract_id_sap
 function extractKecIDESAP(t: string): string {
   const lines = t.split('\n')
   const addrParts: string[] = []
@@ -292,15 +318,12 @@ function extractKecIDESAP(t: string): string {
 
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
-
-    // Mulai collect dari: "Nomor Telepon: xxx  Alamat: [penerima awal]"
     const startM = line.match(/Nomor Telepon:\s*.+?\s+Alamat:\s*(.+)/i)
     if (startM) {
       addrParts.push(startM[1].trim())
       collecting = true
       continue
     }
-
     if (collecting) {
       if (/^\d{5}$/.test(line.trim()) || /^Nama Produk/i.test(line.trim())) {
         collecting = false; continue
@@ -329,7 +352,6 @@ function extractKecIDESAP(t: string): string {
     return clean
   }
 
-  // Fallback regex
   const addrM = t.match(/Alamat\s*:[^\n\r]{0,200}?((?:[A-Za-z][A-Za-z ]{2,30},\s*){1,3}[A-Za-z][A-Za-z ]{2,30})\s*(?:-\s*\d{5}|,\s*\d{5}|\n)/i)
   if (addrM) {
     const parts = addrM[1].split(',').map(s => norm(s))
@@ -343,7 +365,7 @@ function extractKecIDESAP(t: string): string {
 function extractKec(t: string, exp: Expedition): string {
   switch (exp) {
     case 'JNT': {
-      const addr = findPenerimaAddress(t)
+      const addr = findPenerimaAddressJNT(t)
       return addr ? parseKecamatanJNT(addr) : ''
     }
     case 'JNE': return extractKecJNE(t)
@@ -358,12 +380,10 @@ function extractKec(t: string, exp: Expedition): string {
 
 // ── Biaya ──────────────────────────────────────────────────────────────────────
 function extractBiaya(t: string, exp: Expedition): number {
-  // JNE: Total Ongkir: 10.000
   if (exp === 'JNE') {
     const m = t.match(/Total Ongkir\s*:\s*([\d.]+)/i)
     if (m) return Number(m[1].replace(/\./g, ''))
   }
-  // JNT / iD / SAP: IDR atau Rp
   return parseIDR(t)
 }
 
@@ -386,7 +406,7 @@ function buildBlocksFromPositions(fullText: string, positions: { pos: number }[]
 }
 
 function splitBlocks(fullText: string, pageTexts: string[]): string[] {
-  // JNE: split by AWB: AKJNE
+  // JNE
   const jnePos = [...fullText.matchAll(/AWB\s*:\s*(AKJNE[A-Z0-9]+)/gi)].map(m => ({ pos: m.index! }))
   if (jnePos.length > 1) return buildBlocksFromPositions(fullText, jnePos)
 
@@ -394,25 +414,24 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
   const joPos = [...fullText.matchAll(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/g)].map(m => ({ pos: m.index! }))
   if (joPos.length > 1) return buildBlocksFromPositions(fullText, joPos)
 
-  // JNT lama: 10-digit voting, ambil waybill yang muncul >= 2x, split by posisi kemunculan pertama
+  // JNT lama: 10-digit voting — waybil muncul paling sering, split per kemunculan pertama
   const freq10: Record<string, number> = {}
   for (const m of fullText.matchAll(/\b(\d{10})\b/g)) {
     freq10[m[1]] = (freq10[m[1]] || 0) + 1
   }
-  const candidates = Object.entries(freq10).filter(([, c]) => c >= 2).map(([k]) => k)
-  if (candidates.length > 1) {
-    const pos = candidates
+  const wb10 = Object.entries(freq10).filter(([, c]) => c >= 2).map(([k]) => k)
+  if (wb10.length > 1) {
+    const pos = wb10
       .map(wb => ({ pos: fullText.indexOf(wb) }))
       .filter(x => x.pos !== -1)
       .sort((a, b) => a.pos - b.pos)
     return buildBlocksFromPositions(fullText, pos)
   }
 
-  // iD/SAP: split by "No. Resi:"
+  // iD/SAP
   const resiPos = [...fullText.matchAll(/No\.\s*Resi\s*:/gi)].map(m => ({ pos: m.index! }))
   if (resiPos.length > 1) return buildBlocksFromPositions(fullText, resiPos)
 
-  // Fallback: per halaman
   return pageTexts.filter(p => p.trim().length > 20)
 }
 
@@ -455,7 +474,7 @@ export async function parsePdfFile(file: File): Promise<ResiRow[]> {
   const seenWaybills = new Set<string>()
 
   for (let i = 0; i < blocks.length; i++) {
-    // Skip "Lembar Pengirim" — Python: resi-pertama-3.py
+    // Skip lembar pengirim (JNT)
     if (/Lembar Pengirim/i.test(blocks[i])) continue
 
     const row = buildRow(blocks[i], file.name, i)
