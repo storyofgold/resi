@@ -33,7 +33,13 @@ export function formatIDR(n: number): string {
   return n ? 'Rp ' + n.toLocaleString('id-ID') : '—'
 }
 
-// Kata-kata non-wilayah yang bisa mepet ke nama kota/kecamatan
+// Prefix kata non-wilayah yang bisa muncul mepet di awal nama
+const ADDR_NON_START = [
+  'PPN', 'IDR', 'TOTAL', 'BIAYA', 'LANDMARK', 'DKI', 'SUDAH',
+  'NOTES', 'LEMBAR', 'COD', 'QTY', 'PT ', 'SYARAT', 'DFOD',
+]
+
+// Kata non-wilayah yang bisa mepet di akhir nama (untuk trim)
 const NON_WILAYAH = [
   'TOTAL', 'BIAYA', 'NOTES', 'LEMBAR', 'PENGIRIM', 'PENERIMA',
   'SUDAH', 'TERMASUK', 'TGL', 'QTY', 'BARANG', 'BULANAN',
@@ -138,14 +144,14 @@ function extractReceiver(t: string, exp: Expedition): string {
     if (nama) return norm(nama[1])
   }
 
-  // J&T: "Penerima: NAMA\n" atau "Penerima: NAMA******" atau "Penerima : NAMA, 08xxx"
+  // J&T: berbagai format
   if (exp === 'JNT') {
-    // Format dengan spasi " : " (lembar pengirim)
+    // Format bersih "Penerima: NAMA, 08xxx" (lembar pengirim)
     const formal = t.match(/Penerima\s*:\s*([A-Za-z][A-Za-z .]{1,50}?)\s*,\s*0\d{8,}/)
     if (formal) return norm(formal[1])
-    // Format tanpa spasi
-    const m = t.match(/Penerima\s*:\s*([A-Za-z][A-Za-z .]{1,50})(?:\n|\*{3,}|\d{4,})/i)
-    if (m) return norm(m[1])
+    // Format dengan mask "Penerima: NAMA******XXXX"
+    const masked = t.match(/Penerima\s*:\s*([A-Za-z][A-Za-z .]{1,50})(?:\*{3,}|\d{4,})/i)
+    if (masked) return norm(masked[1])
     const m2 = t.match(/Penerima\s*:\s*([^\n\r]{2,60})/i)
     if (m2) return norm(m2[1]).replace(/[,\s]*0\d{8,}.*$/, '').replace(/\*+\d*$/g, '').trim()
   }
@@ -169,20 +175,38 @@ function extractKec(t: string, exp: Expedition): string {
   }
 
   if (exp === 'JNT') {
-    // Pola 1: KECAMATAN, KABUPATEN/KOTA NAMAXX (bisa mepet)
+    // Prioritas 1: KECAMATAN, KABUPATEN/KOTA NAMAXX (JNT-4)
     const kabMatch = t.match(/([A-Z]{3,20})\s*,\s*((?:KABUPATEN|KOTA)\s+)([A-Z]{3,})/i)
     if (kabMatch) {
       const kec = kabMatch[1].trim()
       const prefix = kabMatch[2].trim()
-      const kabRaw = kabMatch[3]
-      const kab = trimWilayah(kabRaw)
+      const kab = trimWilayah(kabMatch[3])
       return `${kec}, ${prefix} ${kab}`
     }
-    // Pola 2: KOTA, KECAMATAN, JL... (J&T-1/2/3)
-    const addrMatch = t.match(
-      /([A-Z]{3,20}),\s*([A-Z]{3,25})\s*,\s*(?:JL\.?|RT|Dk\.|Kel\.|[0-9])/i
-    )
-    if (addrMatch) return `${addrMatch[1].trim()}, ${addrMatch[2].trim()}`
+
+    // Prioritas 2: pola "KOTA, KECAMATAN, JL/RT/No/Dk" (JNT-1/2/3)
+    // Cari SEMUA kemunculan, pilih yang token pertama TERPENDEK
+    // (nama kota bersih < nama+kota mepet)
+    const allAddrMatches = [
+      ...t.matchAll(
+        /(?:^|(?<=[^A-Za-z]))([A-Z][A-Z ]{2,20}),\s*([A-Z][A-Z ]{2,20})\s*,\s*(?:JL\.?|RT|Dk\.|Kel\.|No\.|[0-9])/gm
+      ),
+    ]
+    const validPairs: [string, string][] = []
+    for (const m of allAddrMatches) {
+      const a = m[1].trim()
+      const b = m[2].trim()
+      if (/\d/.test(a) || /\d/.test(b)) continue
+      if (a.length > 22 || b.length > 22) continue
+      const bad = ADDR_NON_START.some(ns => a.toUpperCase().startsWith(ns.toUpperCase()))
+      if (!bad) validPairs.push([a, b])
+    }
+    if (validPairs.length > 0) {
+      // Pilih yang token pertama paling pendek → bersih (bukan concat nama+kota)
+      validPairs.sort((a, b) => a[0].length - b[0].length)
+      return `${validPairs[0][0]}, ${validPairs[0][1]}`
+    }
+
     // Fallback: 2 token uppercase sebelum kode pos
     const pre = t.match(/([A-Z][A-Z ]{2,20},\s*[A-Z][A-Z ]{2,20})\s+\d{5}/)
     if (pre) return pre[1].split(',').map(s => norm(s)).slice(0, 2).join(', ')
@@ -294,8 +318,7 @@ export async function parsePdfFile(file: File): Promise<ResiRow[]> {
   const blocks = splitBlocks(fullText, pageTexts)
   const rows: ResiRow[] = []
 
-  // Dedup: kalau 1 PDF menghasilkan blok yg sama waybill-nya (label utama + lembar pengirim),
-  // keep hanya yang pertama (biasanya lebih lengkap)
+  // Dedup: blok dengan waybill sama (label utama + lembar pengirim) → keep yang pertama
   const seenWaybills = new Set<string>()
 
   for (let i = 0; i < blocks.length; i++) {
