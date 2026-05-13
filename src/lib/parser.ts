@@ -234,43 +234,70 @@ function extractKecJNE(t: string): string {
   return ''
 }
 
+/**
+ * Ambil kecamatan PENERIMA dari resi IDE/SAP.
+ *
+ * Format alamat penerima konsisten:
+ *   Alamat: [jalan bebas], Kelurahan, Kecamatan, Kota, [Kab.,] Provinsi - kodepos
+ *
+ * Strategi:
+ * 1. Cari blok teks setelah "Penerima" (buang blok pengirim).
+ * 2. Dari blok itu, ambil nilai setelah "Alamat:" hingga "Nama Produk" / akhir.
+ * 3. Gabungkan baris multi-line jadi satu string.
+ * 4. Strip kode pos + provinsi + kota di ujung.
+ * 5. Ambil 2 segmen terakhir yang tersisa (= Kelurahan, Kecamatan).
+ */
 function extractKecIDESAP(t: string): string {
-  const lines = t.split('\n')
-  const addrParts: string[] = []
+  // Potong teks mulai dari kemunculan pertama "Penerima" agar tidak nyenggol alamat pengirim
+  const penerimaIdx = t.search(/\bPenerima\b/i)
+  const src = penerimaIdx >= 0 ? t.slice(penerimaIdx) : t
+
+  // Kumpulkan baris alamat penerima: mulai dari "Alamat:" sampai "Nama Produk" / rute kode / akhir blok
+  const lines = src.split('\n')
+  const addrLines: string[] = []
   let collecting = false
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    const startM = line.match(/Nomor Telepon:\s*.+?\s+Alamat:\s*(.+)/i)
-    if (startM) { addrParts.push(startM[1].trim()); collecting = true; continue }
-    if (collecting) {
-      if (/^\d{5}$/.test(line.trim()) || /^Nama Produk/i.test(line.trim())) { collecting = false; continue }
-      const alamatM = line.match(/^Alamat:\s*(.+)/i)
-      if (alamatM) {
-        const split2 = alamatM[1].match(/^(.+?-\s*\d{5})\s+(.+)/)
-        if (split2) addrParts.push(split2[2].trim())
-        continue
-      }
-      const kotaM = line.match(/^(.+?-\s*\d{5})\s+(.+)/)
-      if (kotaM) { addrParts.push(kotaM[2].trim()); continue }
-      const nl = line.trim()
-      if (nl && !/^(Nomor|Alamat|Nama|PICKUP|NON COD|[A-Z]{2,5}\d{4})/i.test(nl)) addrParts.push(nl)
+
+  for (const line of lines) {
+    const nl = norm(line)
+    if (!collecting) {
+      const m = nl.match(/^Alamat:\s*(.+)/i)
+      if (m) { addrLines.push(m[1]); collecting = true }
+      continue
     }
+    // Hentikan pengumpulan saat ketemu baris berikutnya yang bukan lanjutan alamat
+    if (
+      /^Nama Produk/i.test(nl) ||
+      /^[A-Z]{2,5}[-][A-Z]{2,5}[-]/.test(nl) || // kode rute misal SUB-SUB11-SUB13
+      /^\d{5}$/.test(nl) ||
+      nl === ''
+    ) break
+    addrLines.push(nl)
   }
-  if (addrParts.length > 0) {
-    const full = addrParts.join(', ').replace(/\s*-\s*$/, '').trim()
-    const clean = full.replace(/\s*-\s*\d{5}$/, '').trim()
-    const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
-    if (parts.length >= 4) return `${parts[parts.length - 3]}, ${parts[parts.length - 2]}`
-    if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
-    return clean
+
+  if (!addrLines.length) return ''
+
+  // Gabung semua baris alamat
+  let full = addrLines.join(', ')
+
+  // Strip kode pos beserta provinsi/kota di bagian akhir
+  // Format: "..., Kelurahan, Kecamatan, Kota, [Kab.,] Provinsi - kodepos"
+  // Buang " - kodepos" di ujung
+  full = full.replace(/\s*-\s*\d{5}\s*$/, '').trim()
+
+  const parts = full.split(',').map(s => norm(s)).filter(Boolean)
+
+  // Buang bagian yang jelas merupakan provinsi/kota/kab di ujung
+  // ("Kab.", "Jawa Timur", "DKI Jakarta", dll)
+  const trailingJunk = /^(Kab\.|Kota|DKI|Jawa|Sumatera|Kalimantan|Sulawesi|Bali|Banten|Lampung|Bangka|Nusa|Papua|Maluku|Aceh|Riau|Jambi|Bengkulu|Gorontalo)/i
+  while (parts.length > 0 && trailingJunk.test(parts[parts.length - 1])) {
+    parts.pop()
   }
-  const addrM = t.match(/Alamat\s*:[^\n\r]{0,200}?((?:[A-Za-z][A-Za-z ]{2,30},\s*){1,3}[A-Za-z][A-Za-z ]{2,30})\s*(?:-\s*\d{5}|,\s*\d{5}|\n)/i)
-  if (addrM) {
-    const parts = addrM[1].split(',').map(s => norm(s))
-      .filter(s => s.length > 2 && !/^\d/.test(s) && !/^(jl|rt|rw|no|gg|gang|blok)/i.test(s))
-    if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
-    if (parts.length === 1) return parts[0]
-  }
+
+  // Buang juga segmen yang mengandung nama kota besar di ujung
+  // (hasil setelah strip provinsi, kota masih bisa tersisa)
+  // Cukup 2 segmen terakhir = Kelurahan, Kecamatan
+  if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
+  if (parts.length === 1) return parts[0]
   return ''
 }
 
