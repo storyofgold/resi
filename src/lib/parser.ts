@@ -33,6 +33,23 @@ export function formatIDR(n: number): string {
   return n ? 'Rp ' + n.toLocaleString('id-ID') : '—'
 }
 
+// Kata-kata non-wilayah yang bisa mepet ke nama kota/kecamatan
+const NON_WILAYAH = [
+  'TOTAL', 'BIAYA', 'NOTES', 'LEMBAR', 'PENGIRIM', 'PENERIMA',
+  'SUDAH', 'TERMASUK', 'TGL', 'QTY', 'BARANG', 'BULANAN',
+  'PPN', 'PPNB', 'DFOD', 'COD', 'ONGKIR', 'SYARAT',
+]
+
+/** Trim nama wilayah yang mepet ke kata non-wilayah tanpa spasi */
+function trimWilayah(s: string): string {
+  const up = s.toUpperCase()
+  for (const stop of NON_WILAYAH) {
+    const idx = up.indexOf(stop)
+    if (idx > 0) return s.slice(0, idx).trim()
+  }
+  return s.trim()
+}
+
 // ── Expedition detector ───────────────────────────────────────────────────────
 type Expedition = 'JNE' | 'JNT' | 'IDE' | 'SAP' | 'UNKNOWN'
 
@@ -66,7 +83,8 @@ function extractWaybillJNE(t: string): string {
 
 function extractWaybillJNT(t: string): string {
   // J&T-4: format JO + 10 digit
-  const jo = t.match(/\b(JO\d{10})\b/)
+  // Tidak pakai \b karena JO bisa mepet ke karakter sebelumnya (e.g. "09CJO0323905055")
+  const jo = t.match(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/)
   if (jo) return jo[1]
 
   // J&T-1/2/3: 10-digit numeric yg muncul paling sering (>= 3x)
@@ -116,17 +134,20 @@ function extractReceiver(t: string, exp: Expedition): string {
   if (exp === 'JNE') {
     const inline = t.match(/Penerima\s*:\s*([A-Za-z][^,\n\r]{1,50}),/)
     if (inline) return norm(inline[1])
-    // blok label: "Nama: Heliyati" di sisi Penerima
     const nama = t.match(/Penerima[\s\S]{0,5}?Nama\s*:\s*([^\n\r]{2,60})/i)
     if (nama) return norm(nama[1])
   }
 
-  // J&T: "Penerima: NAMA\n" atau "Penerima: NAMA******"
+  // J&T: "Penerima: NAMA\n" atau "Penerima: NAMA******" atau "Penerima : NAMA, 08xxx"
   if (exp === 'JNT') {
+    // Format dengan spasi " : " (lembar pengirim)
+    const formal = t.match(/Penerima\s*:\s*([A-Za-z][A-Za-z .]{1,50}?)\s*,\s*0\d{8,}/)
+    if (formal) return norm(formal[1])
+    // Format tanpa spasi
     const m = t.match(/Penerima\s*:\s*([A-Za-z][A-Za-z .]{1,50})(?:\n|\*{3,}|\d{4,})/i)
     if (m) return norm(m[1])
     const m2 = t.match(/Penerima\s*:\s*([^\n\r]{2,60})/i)
-    if (m2) return norm(m2[1]).replace(/\*+\d*$/g, '').trim()
+    if (m2) return norm(m2[1]).replace(/[,\s]*0\d{8,}.*$/, '').replace(/\*+\d*$/g, '').trim()
   }
 
   // Generic fallback
@@ -137,7 +158,6 @@ function extractReceiver(t: string, exp: Expedition): string {
 // ── Kecamatan — ambil 2 wilayah terbesar ─────────────────────────────────────
 function extractKec(t: string, exp: Expedition): string {
   if (exp === 'JNE') {
-    // "Penerima: Nama, jalan..., KEC, KOTA" — ambil 2 token terakhir dari alamat penerima
     const block = t.match(/Penerima\s*:[\s\S]{0,200}?([A-Z][A-Z ]+,\s*(?:KOTA|KAB(?:UPATEN)?)\s+[A-Z ]+)/i)
     if (block) {
       const parts = block[1].split(',').map(s => norm(s)).filter(Boolean)
@@ -149,31 +169,27 @@ function extractKec(t: string, exp: Expedition): string {
   }
 
   if (exp === 'JNT') {
-    // Alamat J&T: "KOTA, KECAMATAN, JL. detail..."
-    // Ambil 2 token uppercase sebelum detail jalan (JL/RT/No./Dk./Kel.)
+    // Pola 1: KECAMATAN, KABUPATEN/KOTA NAMAXX (bisa mepet)
+    const kabMatch = t.match(/([A-Z]{3,20})\s*,\s*((?:KABUPATEN|KOTA)\s+)([A-Z]{3,})/i)
+    if (kabMatch) {
+      const kec = kabMatch[1].trim()
+      const prefix = kabMatch[2].trim()
+      const kabRaw = kabMatch[3]
+      const kab = trimWilayah(kabRaw)
+      return `${kec}, ${prefix} ${kab}`
+    }
+    // Pola 2: KOTA, KECAMATAN, JL... (J&T-1/2/3)
     const addrMatch = t.match(
-      /Penerima\s*:[^\n]*(?:\n|\*+\d*)([A-Z][A-Z ,]{5,}?)(?:,\s*JL\.?|,\s*(?:RT|RW|No\.|Dk\.|Kel\.?|Kec\.?|\d{5}))/i
+      /([A-Z]{3,20}),\s*([A-Z]{3,25})\s*,\s*(?:JL\.?|RT|Dk\.|Kel\.|[0-9])/i
     )
-    if (addrMatch) {
-      const parts = addrMatch[1].split(',').map(s => norm(s)).filter(s => s.length > 1)
-      if (parts.length >= 2) return `${parts[0]}, ${parts[1]}`
-      if (parts.length === 1) return parts[0]
-    }
-    // Fallback: KABUPATEN/KOTA pola
-    const kb = t.match(/([A-Z][A-Z ]{2,25}),\s*((?:KABUPATEN|KOTA)\s+[A-Z ]{2,25})/i)
-    if (kb) return `${norm(kb[1])}, ${norm(kb[2])}`
-    // Fallback 2: 2 token uppercase sebelum kode pos 5-digit
-    const pre = t.match(/([A-Z][A-Z ]{2,25},\s*[A-Z][A-Z ]{2,25})\s+\d{5}/)
-    if (pre) {
-      const parts = pre[1].split(',').map(s => norm(s))
-      return parts.slice(0, 2).join(', ')
-    }
+    if (addrMatch) return `${addrMatch[1].trim()}, ${addrMatch[2].trim()}`
+    // Fallback: 2 token uppercase sebelum kode pos
+    const pre = t.match(/([A-Z][A-Z ]{2,20},\s*[A-Z][A-Z ]{2,20})\s+\d{5}/)
+    if (pre) return pre[1].split(',').map(s => norm(s)).slice(0, 2).join(', ')
     return ''
   }
 
   if (exp === 'IDE' || exp === 'SAP') {
-    // Alamat: "Jl. detail, Kel, Kec, Kota/Kab, Provinsi - kodepos"
-    // Ambil 2 token terakhir sebelum provinsi/kode pos, skip token yg dimulai angka/Jl/RT/RW
     const addrM = t.match(
       /Alamat\s*:[^\n\r]{0,200}?((?:[A-Za-z][A-Za-z ]{2,30},\s*){1,3}[A-Za-z][A-Za-z ]{2,30})\s*(?:-\s*\d{5}|,\s*\d{5}|\n)/i
     )
@@ -214,7 +230,12 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
     .map(m => ({ pos: m.index! }))
   if (jneMatches.length > 1) return buildBlocksFromPositions(fullText, jneMatches)
 
-  // 2. J&T: 10-digit numeric muncul >= 3x per resi
+  // 2. J&T-4: JO + 10 digit (tanpa \b karena bisa mepet)
+  const joAll = [...fullText.matchAll(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/g)]
+    .map(m => ({ pos: m.index! }))
+  if (joAll.length > 1) return buildBlocksFromPositions(fullText, joAll)
+
+  // 3. J&T-1/2/3: 10-digit numeric muncul >= 3x per resi
   const freq10: Record<string, number> = {}
   for (const m of fullText.matchAll(/\b(\d{10})\b/g)) {
     freq10[m[1]] = (freq10[m[1]] || 0) + 1
@@ -227,11 +248,6 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
       .sort((a, b) => a.pos - b.pos)
     return buildBlocksFromPositions(fullText, pos)
   }
-
-  // 3. J&T-4: JO + 10-digit
-  const joMatches = [...fullText.matchAll(/\b(JO\d{10})\b/g)]
-    .map(m => ({ pos: m.index! }))
-  if (joMatches.length > 1) return buildBlocksFromPositions(fullText, joMatches)
 
   // 4. IDE / SAP: split by "No. Resi:"
   const resiMatches = [...fullText.matchAll(/No\.\s*Resi\s*:/gi)]
@@ -277,10 +293,20 @@ export async function parsePdfFile(file: File): Promise<ResiRow[]> {
 
   const blocks = splitBlocks(fullText, pageTexts)
   const rows: ResiRow[] = []
+
+  // Dedup: kalau 1 PDF menghasilkan blok yg sama waybill-nya (label utama + lembar pengirim),
+  // keep hanya yang pertama (biasanya lebih lengkap)
+  const seenWaybills = new Set<string>()
+
   for (let i = 0; i < blocks.length; i++) {
     const row = buildRow(blocks[i], file.name, i)
-    if (row.waybill) rows.push(row)
-    else if (blocks.length === 1) rows.push(row)
+    if (!row.waybill) {
+      if (blocks.length === 1) rows.push(row)
+      continue
+    }
+    if (seenWaybills.has(row.waybill)) continue
+    seenWaybills.add(row.waybill)
+    rows.push(row)
   }
   return rows
 }
