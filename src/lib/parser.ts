@@ -59,8 +59,22 @@ function extractWaybillJNE(t: string): string {
 }
 
 function extractWaybillJNT(t: string): string {
+  // JO prefix (lama)
   const jo = t.match(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/)
   if (jo) return jo[1]
+
+  // J&T 13-digit waybill (format baru, e.g. 1361777735xxx)
+  // Pola: angka 13 digit yang muncul berulang (>=2x) di dokumen
+  const counter13: Record<string, number> = {}
+  for (const m of t.matchAll(/\b(\d{13})\b/g)) {
+    counter13[m[1]] = (counter13[m[1]] || 0) + 1
+  }
+  const wb13 = Object.entries(counter13).filter(([, c]) => c >= 2)
+  if (wb13.length > 0) {
+    return wb13.sort((a, b) => b[1] - a[1])[0][0]
+  }
+
+  // 10-digit waybill (format lama)
   const counter: Record<string, number> = {}
   for (const m of t.matchAll(/\b(\d{10})\b/g)) {
     counter[m[1]] = (counter[m[1]] || 0) + 1
@@ -172,6 +186,8 @@ function findPenerimaAddressJNT(pageText: string): string {
       if (/^(Pengirim\s*:|BIAYA|Notes\s*:|Syarat|Order|PT\.|LANDMARK|Sudah Termasuk|TOTAL BIAYA|Qty)/i.test(nl)) break
       if (/^(COD|DFOD|NP|EZ|BULANAN)$/i.test(nl)) break
       if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl) || /^\d{10}$/.test(nl)) continue
+      // Skip 13-digit waybill lines
+      if (/^\d{13}$/.test(nl)) continue
       if (nl.length > 3) addrLines.push(nl)
     }
     if (addrLines.length > 0 && /,/.test(addrLines.join(' '))) return addrLines.join(' ')
@@ -347,6 +363,18 @@ function splitBlocks(fullText: string, pageTexts: string[]): string[] {
 
   const joPos = [...fullText.matchAll(/(?<![A-Z0-9])(JO\d{10})(?![0-9])/g)].map(m => ({ pos: m.index! }))
   if (joPos.length > 1) return buildBlocksFromPositions(fullText, joPos)
+
+  // J&T 13-digit waybill split
+  const freq13: Record<string, number> = {}
+  for (const m of fullText.matchAll(/\b(\d{13})\b/g)) freq13[m[1]] = (freq13[m[1]] || 0) + 1
+  const wb13 = Object.keys(freq13).filter(k => freq13[k] >= 2)
+  if (wb13.length > 1) {
+    const pos = wb13
+      .map(wb => ({ pos: fullText.indexOf(wb) }))
+      .filter(x => x.pos !== -1)
+      .sort((a, b) => a.pos - b.pos)
+    return buildBlocksFromPositions(fullText, pos)
+  }
 
   const freq10: Record<string, number> = {}
   for (const m of fullText.matchAll(/\b(\d{10})\b/g)) freq10[m[1]] = (freq10[m[1]] || 0) + 1
