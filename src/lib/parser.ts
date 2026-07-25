@@ -101,33 +101,34 @@ function extractWaybill(t: string, exp: Expedition): string {
 }
 
 // Token yang pasti bukan nama orang di resi J&T
-const JNT_NON_NAME_TOKENS = new Set([
-  'COD', 'DFOD', 'NP', 'EZ', 'BULANAN', 'PAKAIAN', 'FASHION', 'ELEKTRONIK',
-  'MAKANAN', 'MINUMAN', 'KOSMETIK', 'DOKUMEN', 'AKSESORIS', 'MAINAN',
-  'LANDMARK', 'PLUIT', 'JAKARTA', 'PENJARINGAN', 'DKI', 'BLOK',
-  'PT', 'GLOBAL', 'JET', 'EXPRESS', 'BIAYA', 'TOTAL', 'IDR', 'PPN',
-  'SYARAT', 'KETENTUAN', 'PENGIRIMAN', 'WEBSITE', 'LEMBAR', 'PENGIRIM',
-  // Brand/toko yang sering muncul di resi sebagai pengirim
-  'MALL', 'STORE', 'SHOP', 'MARKET', 'MATAHARI', 'ALFAMART', 'INDOMARET',
-  'TOKOPEDIA', 'SHOPEE', 'LAZADA', 'BLIBLI', 'BUKALAPAK', 'TOKO', 'OFFICIAL',
-  'THE', 'PARK', 'MDS', 'TRADE', 'CENTER', 'PLAZA', 'SQUARE',
+const JNT_NOISE = new Set([
+  'COD','DFOD','NP','EZ','BULANAN','PAKAIAN','FASHION','ELEKTRONIK',
+  'MAKANAN','MINUMAN','KOSMETIK','DOKUMEN','AKSESORIS','MAINAN',
+  'LANDMARK','PLUIT','JAKARTA','PENJARINGAN','DKI','BLOK',
+  'PT','GLOBAL','JET','EXPRESS','BIAYA','TOTAL','IDR','PPN',
+  'SYARAT','KETENTUAN','PENGIRIMAN','WEBSITE','LEMBAR','PENGIRIM',
+  'MALL','STORE','SHOP','MARKET','MATAHARI','ALFAMART','INDOMARET',
+  'TOKOPEDIA','SHOPEE','LAZADA','BLIBLI','BUKALAPAK','TOKO','OFFICIAL',
+  'THE','PARK','MDS','TRADE','CENTER','PLAZA','SQUARE',
+  'BARANG','QTY','PCS','NOTES','KG','BARAT','TIMUR','SELATAN','UTARA',
+  'JAWA','SUMATERA','KALIMANTAN','SULAWESI','BALI','NUSA','PAPUA',
 ])
 
 function isLikelyName(s: string): boolean {
   const words = s.trim().split(/\s+/)
   if (words.length < 1 || words.length > 4) return false
   if (s.length < 3 || s.length > 40) return false
-  if (/[^A-Z\s]/.test(s)) return false
-  // Tolak jika ADA SATU PUN token yang masuk daftar non-nama
-  // (lebih ketat dari sebelumnya yang "semua token harus non-nama")
-  if (words.some(w => JNT_NON_NAME_TOKENS.has(w))) return false
+  // Tolak jika ada angka, simbol kecuali slash (nama seperti "Nurajah / Mama N")
+  if (/[^A-Za-z\s/]/.test(s)) return false
+  // Tolak jika ADA satu token pun yang masuk noise
+  if (words.some(w => JNT_NOISE.has(w.toUpperCase()))) return false
   return true
 }
 
 function extractReceiverJNT(t: string): string {
   const lines = t.split('\n')
 
-  // Strategi 1: ambil dari "Penerima: <nama>" — strip nomor masked
+  // Strategi 1: "Penerima: <nama>" inline, strip masked number
   for (const line of lines) {
     const m = line.match(/Penerima\s*:\s*(.+)/)
     if (!m) continue
@@ -138,38 +139,24 @@ function extractReceiverJNT(t: string): string {
     if (name.length >= 2) return name
   }
 
-  // Strategi 2 (fallback — lembar pengirim only, Penerima: hanya berisi nomor masked):
-  // Cari nama di baris TEPAT SETELAH baris yang mengandung "Penerima:"
-  // Format: "Penerima:\n<NAMA PENERIMA>\n<alamat...>"
-  for (let i = 0; i < lines.length; i++) {
-    if (!/Penerima\s*:/i.test(lines[i])) continue
-    // Cek 3 baris berikutnya — ambil yang pertama lolos isLikelyName
-    for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-      const candidate = norm(lines[j])
-      if (candidate.length < 2) continue
-      // Skip baris yang jelas bukan nama (angka, masked, alamat panjang)
-      if (/^[\d\*]+$/.test(candidate)) continue
-      if (/^\d{13}$/.test(candidate)) continue
-      if (candidate.length > 50) continue
-      // Jika uppercase dan lolos filter nama
-      if (candidate === candidate.toUpperCase() && isLikelyName(candidate)) return candidate
-      // Jika mixed case (nama biasa seperti "Faiz") — ambil langsung
-      if (/^[A-Za-z][a-z]/.test(candidate) && !/[\d,]/.test(candidate) && candidate.split(/\s+/).length <= 4) return candidate
-    }
+  // Strategi 2: reverse scan — nama uppercase valid TERAKHIR di dokumen.
+  // Pada format lembar pengirim J&T, nama penerima selalu muncul
+  // di bagian akhir teks setelah semua field lain (Notes:, PAKAIAN, dll).
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const cand = norm(lines[i])
+    if (cand === cand.toUpperCase() && isLikelyName(cand)) return cand
   }
 
-  // Strategi 3: frequency fallback — nama yang muncul >=2x, lolos filter ketat
-  const normLines = lines.map(l => norm(l)).filter(Boolean)
+  // Strategi 3: frequency fallback — nama muncul >=2x
   const freq: Record<string, number> = {}
-  for (const line of normLines) {
-    if (line !== line.toUpperCase()) continue
-    if (!isLikelyName(line)) continue
-    freq[line] = (freq[line] || 0) + 1
+  for (const line of lines) {
+    const cand = norm(line)
+    if (cand !== cand.toUpperCase()) continue
+    if (!isLikelyName(cand)) continue
+    freq[cand] = (freq[cand] || 0) + 1
   }
-  const candidates = Object.entries(freq)
-    .filter(([, c]) => c >= 2)
-    .sort((a, b) => b[1] - a[1])
-  if (candidates.length > 0) return candidates[0][0]
+  const best = Object.entries(freq).filter(([, c]) => c >= 2).sort((a, b) => b[1] - a[1])
+  if (best.length > 0) return best[0][0]
 
   return ''
 }
@@ -209,7 +196,10 @@ function parseKecamatanJNT(alamat: string): string {
   const clean = norm(alamat)
   const parts = clean.split(',').map(s => s.trim()).filter(Boolean)
   const capsParts = parts.filter(p =>
-    p === p.toUpperCase() && /[A-Z]{3,}/.test(p) && p.length > 2
+    p === p.toUpperCase() &&
+    /[A-Z]{3,}/.test(p) &&
+    p.length > 2 &&
+    !/^(RT|RW|JL|BLOK|GANG|GG)\b/.test(p)
   )
   if (capsParts.length >= 2) return `${capsParts[0]}, ${capsParts[1]}`
   if (capsParts.length === 1) return capsParts[0]
@@ -226,75 +216,55 @@ function parseKecamatanJNT(alamat: string): string {
 function findPenerimaAddressJNT(pageText: string): string {
   const lines = pageText.split('\n')
 
-  // Pass 1: cari alamat di baris setelah "Penerima:"
+  // Pass 1: kumpulkan baris setelah label "Penerima:"
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]
     if (!/Penerima\s*:/i.test(line)) continue
 
-    // Cek apakah inline (setelah strip nama/masked)
+    // Coba ambil inline (setelah strip nama/masked)
     const afterLabel = line.replace(/Penerima\s*:\s*/i, '').trim()
-    // Buang nama atau masked number di awal untuk cari alamat inline
     const inlineAddr = afterLabel
-      .replace(/^[A-Za-z][A-Za-z\s/]{1,40}(?=,)/, '') // strip nama sebelum koma pertama
-      .replace(/^(?:\*+\d+|\d[\d*]{7,})\s*,?\s*/, '')  // strip masked number
+      .replace(/^(?:\*+\d+|\d[\d*]{7,})\s*,?\s*/, '')
       .trim()
     if (inlineAddr.length > 5 && /,/.test(inlineAddr)) return inlineAddr
 
-    // Kumpulkan baris setelah Penerima:
     const addrLines: string[] = []
     for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
       const nl = lines[j].trim()
       if (/^(Pengirim\s*:|BIAYA|Notes\s*:|Syarat|Order|PT\.|LANDMARK|Sudah Termasuk|TOTAL BIAYA|Qty)/i.test(nl)) break
       if (/^(COD|DFOD|NP|EZ|BULANAN)$/i.test(nl)) break
+      if (/^(IDR|Rp)\b/i.test(nl)) continue  // skip baris biaya
       if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl) || /^\d{10}$/.test(nl)) continue
       if (/^\d{13}$/.test(nl)) continue
-      // Skip baris yang kemungkinan nama penerima (bukan alamat)
-      if (isLikelyName(norm(nl))) continue
+      if (isLikelyName(norm(nl))) continue  // skip baris nama, bukan alamat
       if (nl.length > 3) addrLines.push(nl)
     }
     const joined = addrLines.join(' ')
     if (addrLines.length > 0 && /,/.test(joined)) return joined
   }
 
-  // Pass 2: scan seluruh halaman untuk blok uppercase dengan >=2 koma
-  // Exclude baris yang merupakan alamat pengirim (biasanya diawali nama kota pengirim
-  // yang sudah diketahui dari konteks "Pengirim:")
-  let senderCity = ''
-  for (const line of lines) {
-    const m = line.match(/Pengirim\s*:[^\n]*?([A-Z]{3,}(?:,|$))/)
-    if (m) { senderCity = m[1].replace(',', '').trim(); break }
-  }
-
+  // Pass 2: scan seluruh halaman — cari baris uppercase dengan koma
+  // exclude: landmark/DKI/JAKARTA pengirim, baris IDR/biaya, noise
   const candidates: string[] = []
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i].trim()
-    if (
-      line.length > 8 &&
-      line === line.toUpperCase() &&
-      line.includes(',') &&
-      /[A-Z]{3,}/.test(line) &&
-      !/^\d+$/.test(line) &&
-      !/^(LANDMARK|PT\s|JAKARTA UTARA|DKI JAKARTA|PLUIT)/i.test(line)
-    ) {
-      // Skip jika baris ini adalah alamat pengirim (kota pengirim match)
-      if (senderCity && line.startsWith(senderCity)) continue
-
-      const block = [line]
-      for (let j = i + 1; j < Math.min(i + 4, lines.length); j++) {
-        const nl = lines[j].trim()
-        if (nl && nl === nl.toUpperCase() && /[A-Z]{3,}/.test(nl) &&
-          !/^\d+$/.test(nl) &&
-          !/^(LANDMARK|PT\s|COD|NP|EZ|DFOD|BULANAN|BIAYA)/i.test(nl)
-        ) {
-          block.push(nl)
-        } else break
-      }
-      const full = block.join(' ')
-      if ((full.match(/,/g) ?? []).length >= 2) candidates.push(full)
-    }
+  for (const line of lines) {
+    const l = line.trim()
+    if (l !== l.toUpperCase()) continue
+    if (!l || l.startsWith(';;')) continue
+    if (/^\d+$/.test(l) || /^\*/.test(l)) continue
+    if (/^(IDR|Rp)\b/i.test(l)) continue
+    if (/LANDMARK|DKI JAKARTA|JAKARTA UTARA|PT GLOBAL|JAKARTA,/i.test(l)) continue
+    if (l.count(',') < 1) continue   // TS workaround below
+    const commaCount = (l.match(/,/g) ?? []).length
+    if (commaCount < 1) continue
+    if (!/[A-Z]{3,}/.test(l) || l.length <= 8) continue
+    // Pastikan ada setidaknya 2 token non-noise non-angka
+    const words = l.replace(/,/g, ' ').split(/\s+/)
+    const nonNoise = words.filter(w => !JNT_NOISE.has(w) && !/^\d/.test(w) && w.length > 1)
+    if (nonNoise.length < 2) continue
+    candidates.push(l)
   }
   if (candidates.length > 0)
-    return candidates.reduce((a, b) => b.split(',').length > a.split(',').length ? b : a)
+    return candidates.reduce((a, b) => (b.match(/,/g) ?? []).length > (a.match(/,/g) ?? []).length ? b : a)
   return ''
 }
 
