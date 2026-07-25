@@ -114,11 +114,15 @@ const JNT_NOISE = new Set([
   'JAWA','SUMATERA','KALIMANTAN','SULAWESI','BALI','NUSA','PAPUA',
 ])
 
+function commaCount(s: string): number {
+  return (s.match(/,/g) ?? []).length
+}
+
 function isLikelyName(s: string): boolean {
   const words = s.trim().split(/\s+/)
   if (words.length < 1 || words.length > 4) return false
   if (s.length < 3 || s.length > 40) return false
-  // Tolak jika ada angka, simbol kecuali slash (nama seperti "Nurajah / Mama N")
+  // Tolak jika ada angka atau simbol (kecuali slash untuk nama seperti "Nurajah / Mama N")
   if (/[^A-Za-z\s/]/.test(s)) return false
   // Tolak jika ADA satu token pun yang masuk noise
   if (words.some(w => JNT_NOISE.has(w.toUpperCase()))) return false
@@ -140,8 +144,7 @@ function extractReceiverJNT(t: string): string {
   }
 
   // Strategi 2: reverse scan — nama uppercase valid TERAKHIR di dokumen.
-  // Pada format lembar pengirim J&T, nama penerima selalu muncul
-  // di bagian akhir teks setelah semua field lain (Notes:, PAKAIAN, dll).
+  // Pada lembar pengirim J&T, nama penerima selalu di bagian akhir teks.
   for (let i = lines.length - 1; i >= 0; i--) {
     const cand = norm(lines[i])
     if (cand === cand.toUpperCase() && isLikelyName(cand)) return cand
@@ -215,37 +218,28 @@ function parseKecamatanJNT(alamat: string): string {
 
 function findPenerimaAddressJNT(pageText: string): string {
   const lines = pageText.split('\n')
+  const n = lines.length
 
   // Pass 1: kumpulkan baris setelah label "Penerima:"
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]
-    if (!/Penerima\s*:/i.test(line)) continue
-
-    // Coba ambil inline (setelah strip nama/masked)
-    const afterLabel = line.replace(/Penerima\s*:\s*/i, '').trim()
-    const inlineAddr = afterLabel
-      .replace(/^(?:\*+\d+|\d[\d*]{7,})\s*,?\s*/, '')
-      .trim()
-    if (inlineAddr.length > 5 && /,/.test(inlineAddr)) return inlineAddr
-
+  for (let i = 0; i < n; i++) {
+    if (!/Penerima\s*:/i.test(lines[i])) continue
     const addrLines: string[] = []
-    for (let j = i + 1; j < Math.min(i + 10, lines.length); j++) {
+    for (let j = i + 1; j < Math.min(i + 10, n); j++) {
       const nl = lines[j].trim()
       if (/^(Pengirim\s*:|BIAYA|Notes\s*:|Syarat|Order|PT\.|LANDMARK|Sudah Termasuk|TOTAL BIAYA|Qty)/i.test(nl)) break
       if (/^(COD|DFOD|NP|EZ|BULANAN)$/i.test(nl)) break
-      if (/^(IDR|Rp)\b/i.test(nl)) continue  // skip baris biaya
-      if (/^\d+$/.test(nl) || /^\*+\d+$/.test(nl) || /^\d{10}$/.test(nl)) continue
+      if (/^(IDR|Rp)\b/i.test(nl)) continue
+      if (/^\d+$/.test(nl) || /^\*+\d*$/.test(nl) || /^\d{10}$/.test(nl)) continue
       if (/^\d{13}$/.test(nl)) continue
-      if (isLikelyName(norm(nl))) continue  // skip baris nama, bukan alamat
+      if (isLikelyName(norm(nl))) continue  // baris nama, bukan alamat
       if (nl.length > 3) addrLines.push(nl)
     }
     const joined = addrLines.join(' ')
     if (addrLines.length > 0 && /,/.test(joined)) return joined
   }
 
-  // Pass 2: scan seluruh halaman — cari baris uppercase dengan koma
-  // exclude: landmark/DKI/JAKARTA pengirim, baris IDR/biaya, noise
-  const candidates: string[] = []
+  // Pass 2: baris all-uppercase dengan koma (format lembar penerima J&T)
+  const candidates2: string[] = []
   for (const line of lines) {
     const l = line.trim()
     if (l !== l.toUpperCase()) continue
@@ -253,18 +247,29 @@ function findPenerimaAddressJNT(pageText: string): string {
     if (/^\d+$/.test(l) || /^\*/.test(l)) continue
     if (/^(IDR|Rp)\b/i.test(l)) continue
     if (/LANDMARK|DKI JAKARTA|JAKARTA UTARA|PT GLOBAL|JAKARTA,/i.test(l)) continue
-    if (l.count(',') < 1) continue   // TS workaround below
-    const commaCount = (l.match(/,/g) ?? []).length
-    if (commaCount < 1) continue
+    if (commaCount(l) < 1) continue
     if (!/[A-Z]{3,}/.test(l) || l.length <= 8) continue
-    // Pastikan ada setidaknya 2 token non-noise non-angka
     const words = l.replace(/,/g, ' ').split(/\s+/)
     const nonNoise = words.filter(w => !JNT_NOISE.has(w) && !/^\d/.test(w) && w.length > 1)
     if (nonNoise.length < 2) continue
-    candidates.push(l)
+    candidates2.push(l)
   }
-  if (candidates.length > 0)
-    return candidates.reduce((a, b) => (b.match(/,/g) ?? []).length > (a.match(/,/g) ?? []).length ? b : a)
+  if (candidates2.length > 0)
+    return candidates2.reduce((a, b) => commaCount(b) > commaCount(a) ? b : a)
+
+  // Pass 3: baris mixed-case yang DIMULAI dengan "KOTA, KECAMATAN" uppercase
+  // Menangkap format: "CIBINONG, TAJUR HALANG, Perumahan ..."
+  const candidates3: string[] = []
+  for (const line of lines) {
+    const l = line.trim()
+    if (!/^[A-Z]{3,}[A-Z\s]*,\s*[A-Z]{3,}/.test(l)) continue
+    if (/LANDMARK|DKI JAKARTA|JAKARTA UTARA|PT GLOBAL/i.test(l)) continue
+    if (/^(IDR|Rp)\b/i.test(l)) continue
+    candidates3.push(l)
+  }
+  if (candidates3.length > 0)
+    return candidates3.reduce((a, b) => commaCount(b) > commaCount(a) ? b : a)
+
   return ''
 }
 
@@ -298,11 +303,9 @@ function extractKecJNE(t: string): string {
 function extractKecIDESAP(t: string): string {
   const penerimaIdx = t.search(/\bPenerima\b/i)
   const src = penerimaIdx >= 0 ? t.slice(penerimaIdx) : t
-
   const lines = src.split('\n')
   const addrLines: string[] = []
   let collecting = false
-
   for (const line of lines) {
     const nl = norm(line)
     if (!collecting) {
@@ -318,19 +321,12 @@ function extractKecIDESAP(t: string): string {
     ) break
     addrLines.push(nl)
   }
-
   if (!addrLines.length) return ''
-
   let full = addrLines.join(', ')
   full = full.replace(/\s*-\s*\d{5}\s*$/, '').trim()
-
   const parts = full.split(',').map(s => norm(s)).filter(Boolean)
-
   const trailingJunk = /^(Kab\.|Kota|DKI|Jawa|Sumatera|Kalimantan|Sulawesi|Bali|Banten|Lampung|Bangka|Nusa|Papua|Maluku|Aceh|Riau|Jambi|Bengkulu|Gorontalo)/i
-  while (parts.length > 0 && trailingJunk.test(parts[parts.length - 1])) {
-    parts.pop()
-  }
-
+  while (parts.length > 0 && trailingJunk.test(parts[parts.length - 1])) parts.pop()
   if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
   if (parts.length === 1) return parts[0]
   return ''
