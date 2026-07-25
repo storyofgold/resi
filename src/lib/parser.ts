@@ -106,15 +106,59 @@ function extractWaybill(t: string, exp: Expedition): string {
   }
 }
 
+/**
+ * Kata/token yang bukan nama orang — dipakai untuk memfilter kandidat
+ * uppercase di fallback extractReceiverJNT.
+ */
+const JNT_NON_NAME_TOKENS = new Set([
+  'COD', 'DFOD', 'NP', 'EZ', 'BULANAN', 'PAKAIAN', 'FASHION', 'ELEKTRONIK',
+  'MAKANAN', 'MINUMAN', 'KOSMETIK', 'DOKUMEN', 'AKSESORIS', 'MAINAN',
+  'LANDMARK', 'PLUIT', 'JAKARTA', 'PENJARINGAN', 'DKI', 'BLOK',
+  'PT', 'GLOBAL', 'JET', 'EXPRESS', 'BIAYA', 'TOTAL', 'IDR', 'PPN',
+  'SYARAT', 'KETENTUAN', 'PENGIRIMAN', 'WEBSITE', 'LEMBAR', 'PENGIRIM',
+])
+
+function isLikelyName(s: string): boolean {
+  const words = s.trim().split(/\s+/)
+  // 1-4 kata, semua huruf (boleh spasi), panjang wajar
+  if (words.length < 1 || words.length > 4) return false
+  if (s.length < 3 || s.length > 40) return false
+  // Tidak boleh mengandung angka atau simbol
+  if (/[^A-Z\s]/.test(s)) return false
+  // Tidak boleh semua token masuk daftar non-nama
+  if (words.every(w => JNT_NON_NAME_TOKENS.has(w))) return false
+  return true
+}
+
 function extractReceiverJNT(t: string): string {
+  // Strategi 1: ambil dari "Penerima: <nama>" — strip nomor masked di belakang
   for (const line of t.split('\n')) {
     const m = line.match(/Penerima\s*:\s*(.+)/)
     if (!m) continue
     let name = m[1].trim()
+    // Buang nomor masked (e.g. *********8170) di mana pun posisinya
     name = name.replace(/\s*,?\s*(?:\*+\d+|\d[\d*]{7,})\s*$/, '')
+    name = name.replace(/^(?:\*+\d+|\d[\d*]{7,})\s*,?\s*/, '')
     name = norm(name)
     if (name.length >= 2) return name
   }
+
+  // Strategi 2 (fallback untuk lembar pengirim only — nama tidak ada di "Penerima:"):
+  // Cari token uppercase 1-4 kata yang muncul >=2x dan bukan noise/keyword J&T.
+  // Nama penerima di format ini selalu diulang persis 2x di blok teks.
+  const lines = t.split('\n').map(l => norm(l)).filter(Boolean)
+  const freq: Record<string, number> = {}
+  for (const line of lines) {
+    // Hanya baris yang murni uppercase dan kemungkinan nama (bukan alamat panjang)
+    if (line !== line.toUpperCase()) continue
+    if (!isLikelyName(line)) continue
+    freq[line] = (freq[line] || 0) + 1
+  }
+  const candidates = Object.entries(freq)
+    .filter(([, c]) => c >= 2)
+    .sort((a, b) => b[1] - a[1])
+  if (candidates.length > 0) return candidates[0][0]
+
   return ''
 }
 
@@ -264,11 +308,9 @@ function extractKecJNE(t: string): string {
  * 5. Ambil 2 segmen terakhir yang tersisa (= Kelurahan, Kecamatan).
  */
 function extractKecIDESAP(t: string): string {
-  // Potong teks mulai dari kemunculan pertama "Penerima" agar tidak nyenggol alamat pengirim
   const penerimaIdx = t.search(/\bPenerima\b/i)
   const src = penerimaIdx >= 0 ? t.slice(penerimaIdx) : t
 
-  // Kumpulkan baris alamat penerima: mulai dari "Alamat:" sampai "Nama Produk" / rute kode / akhir blok
   const lines = src.split('\n')
   const addrLines: string[] = []
   let collecting = false
@@ -280,10 +322,9 @@ function extractKecIDESAP(t: string): string {
       if (m) { addrLines.push(m[1]); collecting = true }
       continue
     }
-    // Hentikan pengumpulan saat ketemu baris berikutnya yang bukan lanjutan alamat
     if (
       /^Nama Produk/i.test(nl) ||
-      /^[A-Z]{2,5}[-][A-Z]{2,5}[-]/.test(nl) || // kode rute misal SUB-SUB11-SUB13
+      /^[A-Z]{2,5}[-][A-Z]{2,5}[-]/.test(nl) ||
       /^\d{5}$/.test(nl) ||
       nl === ''
     ) break
@@ -292,26 +333,16 @@ function extractKecIDESAP(t: string): string {
 
   if (!addrLines.length) return ''
 
-  // Gabung semua baris alamat
   let full = addrLines.join(', ')
-
-  // Strip kode pos beserta provinsi/kota di bagian akhir
-  // Format: "..., Kelurahan, Kecamatan, Kota, [Kab.,] Provinsi - kodepos"
-  // Buang " - kodepos" di ujung
   full = full.replace(/\s*-\s*\d{5}\s*$/, '').trim()
 
   const parts = full.split(',').map(s => norm(s)).filter(Boolean)
 
-  // Buang bagian yang jelas merupakan provinsi/kota/kab di ujung
-  // ("Kab.", "Jawa Timur", "DKI Jakarta", dll)
   const trailingJunk = /^(Kab\.|Kota|DKI|Jawa|Sumatera|Kalimantan|Sulawesi|Bali|Banten|Lampung|Bangka|Nusa|Papua|Maluku|Aceh|Riau|Jambi|Bengkulu|Gorontalo)/i
   while (parts.length > 0 && trailingJunk.test(parts[parts.length - 1])) {
     parts.pop()
   }
 
-  // Buang juga segmen yang mengandung nama kota besar di ujung
-  // (hasil setelah strip provinsi, kota masih bisa tersisa)
-  // Cukup 2 segmen terakhir = Kelurahan, Kecamatan
   if (parts.length >= 2) return `${parts[parts.length - 2]}, ${parts[parts.length - 1]}`
   if (parts.length === 1) return parts[0]
   return ''
